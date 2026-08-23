@@ -13,7 +13,7 @@ import { enforceAbuseProtection, formatCooldownDuration } from '../utils/abusePr
 import { createEmbed } from '../utils/embeds.js';
 import { isCommandEnabled } from '../services/commandAccessService.js';
 import { getCountingGameConfig, saveCountingGameConfig, isValidCountingMessage, recordCorrectCount } from '../services/countingGameService.js';
-import { askAI, isAIConfigured } from '../services/aiChat.js';
+import { askAI, isAIConfigured, isAIEnabled } from '../services/aiChat.js';
 import { checkAutoMod } from '../services/autoModService.js';
 
 const MESSAGE_XP_RATE_LIMIT_ATTEMPTS = 12;
@@ -24,7 +24,14 @@ export default {
   async execute(message, client) {
     try {
       if (message.author.bot || !message.guild) return;
-      logger.debug(`Message received from ${message.author.tag}: ${message.content}`);
+
+      // Do not log message content. Messages may contain passwords, tokens, private data, etc.
+      logger.debug('Message received', {
+        event: 'message.received',
+        guildId: message.guild.id,
+        channelId: message.channel.id,
+        userId: message.author.id
+      });
 
       const autoMod = await checkAutoMod(message);
       if (autoMod.blocked) {
@@ -40,16 +47,24 @@ export default {
           await message.reply({ content: `Hey ${message.author}! 👋 I'm **${client.user.username}**. Mention me with a question and I'll answer, or use \/help for commands.` }).catch(error => logger.warn('Failed to reply to bot mention:', error?.message));
           return;
         }
+
+        const guildConfig = await getGuildConfig(client, message.guild.id);
+        if (!isAIEnabled(guildConfig)) {
+          await message.reply({ content: 'AI is currently disabled for this server or globally.' }).catch(error => logger.warn('Failed to reply to disabled AI:', error?.message));
+          return;
+        }
+
         if (!isAIConfigured()) {
           await message.reply({ content: `I can answer questions, but my AI key isn't configured yet. Add \`GEMINI_API_KEY\` to the bot's environment and restart me.` }).catch(error => logger.warn('Failed to reply to AI configuration error:', error?.message));
           return;
         }
+
         const thinking = await message.reply({ content: '🤔 Thinking...' }).catch(() => null);
         try {
           const allowedUsers = message.mentions.users.filter(user => user.id !== client.user.id).map(user => user.id);
           const allowedRoles = message.mentions.roles.map(role => role.id);
           const allowedMentions = [...allowedUsers.map(id => `<@${id}>`), ...allowedRoles.map(id => `<@&${id}>`)];
-          const answer = await askAI({ guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id, userName: message.author.username, question: cleaned, botName: client.user.username, allowedMentions });
+          const answer = await askAI({ guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id, userName: message.author.username, question: cleaned, botName: 'Blue', allowedMentions });
           const replyOptions = { content: answer, allowedMentions: { users: allowedUsers, roles: allowedRoles } };
           if (thinking) await thinking.edit(replyOptions); else await message.reply(replyOptions);
         } catch (error) {
@@ -80,7 +95,7 @@ async function handlePrefixCommand(message, client) {
     const musicPrefixShortcut = commandName.toLowerCase();
     const MUSIC_PREFIX_SHORTCUTS = new Set(['leave', 'pause', 'resume', 'skip', 'stop', 'volume']);
     if (MUSIC_PREFIX_SHORTCUTS.has(musicPrefixShortcut)) { commandName = 'music'; args = [musicPrefixShortcut, ...args]; }
-    logger.info(`Prefix command detected: ${commandName}, args: ${args.join(', ')}`);
+    logger.info(`Prefix command detected: ${commandName}`);
     const resolvedCommandName = resolveCommandAlias(commandName);
     const command = client.commands.get(resolvedCommandName);
     if (!command) return;
