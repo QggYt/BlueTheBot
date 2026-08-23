@@ -1,4 +1,4 @@
-name: Copy Blue source into BlueTheBot
+name: Copy Blue source once
 
 on:
   push:
@@ -8,22 +8,22 @@ permissions:
   contents: write
 
 jobs:
-  copy-source:
+  copy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout BlueTheBot
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Copy every file from Blue
+      - name: Copy entire Blue repository into this repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git clone --depth 1 --branch main https://github.com/QggYt/blue.git /tmp/blue-source
-          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -a /tmp/blue-source/. .
-          rm -rf /tmp/blue-source
-          git add -A
+          set -e
+          git clone --depth 1 --branch main https://github.com/QggYt/blue.git /tmp/blue
+          cd /tmp/blue
+          rm -rf .git
+          git init
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit --allow-empty -m 'Copy complete Blue bot project'
-          git push origin HEAD:main
+          git add -A
+          git commit -m 'Copy complete Blue bot source'
+          git branch -M main
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/QggYt/BlueTheBot.git"
+          git push --force origin main
