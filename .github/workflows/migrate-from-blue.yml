@@ -1,4 +1,4 @@
-name: Copy Blue source
+name: Copy Blue source into BlueTheBot
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  copy:
+  copy-source:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout BlueTheBot
@@ -16,14 +16,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Copy complete Blue project
+      - name: Copy every file from Blue
         run: |
-          git clone --depth 1 https://github.com/QggYt/blue.git /tmp/blue
+          git clone --depth 1 --branch main https://github.com/QggYt/blue.git /tmp/blue-source
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -a /tmp/blue/. .
-          rm -f .github/workflows/migrate-from-blue.yml
+          cp -a /tmp/blue-source/. .
+          rm -rf /tmp/blue-source
           git add -A
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Copy complete Blue bot project' || true
+          git commit --allow-empty -m 'Copy complete Blue bot project'
           git push origin HEAD:main
