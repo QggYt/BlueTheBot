@@ -1,4 +1,4 @@
-name: Migrate Blue bot
+name: Copy Blue source
 
 on:
   push:
@@ -8,26 +8,22 @@ permissions:
   contents: write
 
 jobs:
-  migrate:
+  copy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout target repository
+      - name: Checkout BlueTheBot
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Copy Blue source
+      - name: Copy complete Blue project
         run: |
-          git clone --depth 1 --branch main https://github.com/QggYt/blue.git /tmp/blue-source
-          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          cp -a /tmp/blue-source/. .
-          rm -rf .git
-          git init
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch origin main
-          git checkout -B main origin/main
+          git clone --depth 1 https://github.com/QggYt/blue.git /tmp/blue
+          rm -rf --exclude=.git ./* ./.??* 2>/dev/null || true
+          cp -a /tmp/blue/. .
+          rm -f .github/workflows/migrate-from-blue.yml
           git add -A
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit --allow-empty -m 'Migrate Blue bot source into BlueTheBot'
-          git push origin HEAD:main --force
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Copy complete Blue bot project' || true
+          git push origin HEAD:main
