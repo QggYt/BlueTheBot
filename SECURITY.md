@@ -66,11 +66,11 @@ If you operate a self-hosted Blue instance and suffer a security incident:
 - We may assign a CVE or coordinate with CERT/other bodies for high-severity issues.
 
 ## Privacy & Telemetry
-- TitanBot does not phone home or collect usage data by default. (If you plan to add telemetry, it must be opt-in, documented, and transparent.)
+- Blue does not phone home or collect usage data by default. (If you plan to add telemetry, it must be opt-in, documented, and transparent.)
 - Maintainers do not receive data from self-hosted instances. If you choose to enable any telemetry, document what is collected and how to opt out.
 
 ## Contact
 - Preferred: GitHub Security Advisory for this repository
 - Ticket: https:
 
-Thank you for helping keep TitanBot safe.
+Thank you for helping keep Bluesafe.
