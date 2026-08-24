@@ -24,14 +24,7 @@ export default {
   async execute(message, client) {
     try {
       if (message.author.bot || !message.guild) return;
-
-      // Do not log message content. Messages may contain passwords, tokens, private data, etc.
-      logger.debug('Message received', {
-        event: 'message.received',
-        guildId: message.guild.id,
-        channelId: message.channel.id,
-        userId: message.author.id
-      });
+      logger.debug('Message received', { event: 'message.received', guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id });
 
       const autoMod = await checkAutoMod(message);
       if (autoMod.blocked) {
@@ -43,7 +36,7 @@ export default {
 
       if (client.user && message.mentions.users.has(client.user.id)) {
         const cleaned = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
-        if (!cleaned) {
+        if (!cleaned && !message.attachments.some(a => a.contentType?.startsWith('image/'))) {
           await message.reply({ content: `Hey ${message.author}! 👋 I'm **${client.user.username}**. Mention me with a question and I'll answer, or use \/help for commands.` }).catch(error => logger.warn('Failed to reply to bot mention:', error?.message));
           return;
         }
@@ -53,9 +46,8 @@ export default {
           await message.reply({ content: 'AI is currently disabled for this server or globally.' }).catch(error => logger.warn('Failed to reply to disabled AI:', error?.message));
           return;
         }
-
         if (!isAIConfigured()) {
-          await message.reply({ content: `I can answer questions, but my AI key isn't configured yet. Add \`GEMINI_API_KEY\` to the bot's environment and restart me.` }).catch(error => logger.warn('Failed to reply to AI configuration error:', error?.message));
+          await message.reply({ content: 'I can answer questions, but the local AI service is not configured yet.' }).catch(error => logger.warn('Failed to reply to AI configuration error:', error?.message));
           return;
         }
 
@@ -64,12 +56,34 @@ export default {
           const allowedUsers = message.mentions.users.filter(user => user.id !== client.user.id).map(user => user.id);
           const allowedRoles = message.mentions.roles.map(role => role.id);
           const allowedMentions = [...allowedUsers.map(id => `<@${id}>`), ...allowedRoles.map(id => `<@&${id}>`)];
-          const answer = await askAI({ guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id, userName: message.author.username, question: cleaned, botName: 'Blue', allowedMentions });
+
+          const recent = await message.channel.messages.fetch({ limit: 12 }).catch(() => null);
+          const channelMessages = recent ? [...recent.values()]
+            .filter(m => !m.author.bot && m.id !== message.id)
+            .reverse()
+            .map(m => ({ author: m.author.username, content: m.content })) : [];
+
+          const images = [...message.attachments.values()]
+            .filter(a => a.contentType?.startsWith('image/'))
+            .slice(0, 3)
+            .map(a => ({ url: a.url, contentType: a.contentType }));
+
+          const answer = await askAI({
+            guildId: message.guild.id,
+            channelId: message.channel.id,
+            userId: message.author.id,
+            userName: message.author.username,
+            question: cleaned || 'Describe the attached image(s).',
+            botName: 'Blue',
+            allowedMentions,
+            channelMessages,
+            images,
+          });
           const replyOptions = { content: answer, allowedMentions: { users: allowedUsers, roles: allowedRoles } };
           if (thinking) await thinking.edit(replyOptions); else await message.reply(replyOptions);
         } catch (error) {
           logger.error('AI reply failed:', error);
-          const content = error?.message?.startsWith('Gemini free-tier rate limit') ? error.message : 'I couldn\'t reach my AI service right now. Check the AI API configuration and try again.';
+          const content = 'I couldn\'t reach my local AI service right now. Check that the local model is running.';
           if (thinking) await thinking.edit({ content }).catch(() => {}); else await message.reply({ content }).catch(() => {});
         }
         return;
@@ -79,9 +93,7 @@ export default {
       if (countingProcessed) return;
       await handlePrefixCommand(message, client);
       await handleLeveling(message, client);
-    } catch (error) {
-      logger.error('Error in messageCreate event:', error);
-    }
+    } catch (error) { logger.error('Error in messageCreate event:', error); }
   }
 };
 
