@@ -95,21 +95,22 @@ function validateCommands(commands) {
 export async function registerCommands(client, options = {}) {
     // CLIENT_ID = Discord application/bot ID only.
     // SERVER_ID = Discord server (guild) ID only.
-    const clientId = options.clientId || client.user?.id || botConfig.clientId;
-    if (!clientId) throw new Error('Discord application ID is required (CLIENT_ID)');
+    const clientId = String(options.clientId || client.user?.id || botConfig.clientId || '').trim();
+    const serverId = String(options.serverId || botConfig.serverId || process.env.SERVER_ID || '').trim();
+
+    if (!clientId) throw new Error('CLIENT_ID (Discord application/bot ID) is required');
+    if (!/^\d{17,20}$/.test(clientId)) throw new Error('CLIENT_ID must be the numeric Discord application/bot ID, not the server ID or bot token');
+    if (serverId && !/^\d{17,20}$/.test(serverId)) throw new Error('SERVER_ID must be the numeric Discord server/guild ID, not the bot/application ID');
     if (!client.rest) throw new Error('Discord REST client is not available');
 
     const { commands, totalSubcommands } = collectCommandPayloads(client);
     validateCommands(commands);
     if (commands.length > MAX_COMMANDS) throw new Error(`Discord allows ${MAX_COMMANDS} top-level commands; found ${commands.length}`);
 
-    // SERVER_ID is optional. If it is absent, commands are registered globally.
-    // Do not fall back to CLIENT_ID, TEST_GUILD_ID, or any bot/application ID here.
-    const serverId = options.serverId ?? botConfig.serverId ?? process.env.SERVER_ID;
     const route = serverId
         ? `/applications/${clientId}/guilds/${serverId}/commands`
         : `/applications/${clientId}/commands`;
-    const scope = serverId ? `server ${serverId}` : 'global';
+    const scope = serverId ? `server ${serverId}` : 'global application scope';
 
     logger.info(`Registering ${commands.length} ${scope} commands (${totalSubcommands} subcommands)`);
     await client.rest.put(route, { body: commands });
@@ -118,16 +119,16 @@ export async function registerCommands(client, options = {}) {
 
 export async function reloadCommand(client, commandName) {
     const command = client.commands.get(commandName);
-    if (!command) return { success: false, message: `Command "${commandName}" not found` };
+    if (!command) return { success: false, message: `Command \"${commandName}\" not found` };
     try {
         const commandPath = path.resolve(command.filePath);
         const moduleUrl = pathToFileURL(commandPath);
         moduleUrl.searchParams.set('t', Date.now().toString());
         const newCommand = (await import(moduleUrl.href)).default;
         client.commands.set(commandName, newCommand);
-        return { success: true, message: `Successfully reloaded command "${commandName}"` };
+        return { success: true, message: `Successfully reloaded command \"${commandName}\"` };
     } catch (error) {
-        logger.error(`Error reloading command "${commandName}":`, error);
+        logger.error(`Error reloading command \"${commandName}\":`, error);
         return { success: false, message: `Error reloading command: ${error.message}` };
     }
 }
