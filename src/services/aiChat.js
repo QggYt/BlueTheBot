@@ -10,11 +10,17 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const conversations = new Map();
 let resolvedModel = null;
 let resolvedAt = 0;
+let globalAIEnabled = true;
 
 function getKey(guildId, channelId, userId) { return `${guildId}:${channelId}:${userId}`; }
 function trim(text, max = MAX_OUTPUT) { return text.length <= max ? text : `${text.slice(0, max - 3)}...`; }
 function remember(key, role, content) { const history = conversations.get(key) || []; history.push({ role, content }); while (history.length > MAX_HISTORY) history.shift(); conversations.set(key, history); return history; }
 function sanitize(text) { let value = String(text || '').slice(0, MAX_INPUT); for (const pattern of [/(?:sk|rk)-[A-Za-z0-9_-]{20,}/gi,/(?:api[_ -]?key|token|password|secret|authorization)\s*[:=]\s*[^\s,;]+/gi,/Bearer\s+[A-Za-z0-9._~+\-/]+=*/gi,/(?:discord|bot)[_-]?token\s*[:=]\s*[^\s,;]+/gi]) value = value.replace(pattern, '[REDACTED]'); return value; }
+
+export function isGlobalAIEnabled() { return globalAIEnabled; }
+export function setGlobalAIEnabled(enabled) { globalAIEnabled = Boolean(enabled); return globalAIEnabled; }
+export function isAIEnabled(guildConfig) { return globalAIEnabled && guildConfig?.ai?.enabled !== false; }
+
 async function resolveModel(force = false) {
   if (!GEMINI_KEY) return null;
   if (!force && resolvedModel && Date.now() - resolvedAt < 10 * 60 * 1000) return resolvedModel;
