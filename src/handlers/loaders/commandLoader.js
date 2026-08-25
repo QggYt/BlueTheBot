@@ -93,19 +93,23 @@ function validateCommands(commands) {
 }
 
 export async function registerCommands(client, options = {}) {
-    const clientId = options.clientId;
-    if (!clientId) throw new Error('CLIENT_ID is required for slash command registration');
+    // CLIENT_ID = Discord application/bot ID only.
+    // SERVER_ID = Discord server (guild) ID only.
+    const clientId = options.clientId || client.user?.id || botConfig.clientId;
+    if (!clientId) throw new Error('Discord application ID is required (CLIENT_ID)');
     if (!client.rest) throw new Error('Discord REST client is not available');
 
     const { commands, totalSubcommands } = collectCommandPayloads(client);
     validateCommands(commands);
     if (commands.length > MAX_COMMANDS) throw new Error(`Discord allows ${MAX_COMMANDS} top-level commands; found ${commands.length}`);
 
-    const guildId = process.env.GUILD_ID || process.env.TEST_GUILD_ID || botConfig.commands?.testGuildId;
-    const route = guildId
-        ? `/applications/${clientId}/guilds/${guildId}/commands`
+    // SERVER_ID is optional. If it is absent, commands are registered globally.
+    // Do not fall back to CLIENT_ID, TEST_GUILD_ID, or any bot/application ID here.
+    const serverId = options.serverId ?? botConfig.serverId ?? process.env.SERVER_ID;
+    const route = serverId
+        ? `/applications/${clientId}/guilds/${serverId}/commands`
         : `/applications/${clientId}/commands`;
-    const scope = guildId ? `guild ${guildId}` : 'global';
+    const scope = serverId ? `server ${serverId}` : 'global';
 
     logger.info(`Registering ${commands.length} ${scope} commands (${totalSubcommands} subcommands)`);
     await client.rest.put(route, { body: commands });
