@@ -20,10 +20,17 @@ const appConfig = {
 
   bot: {
     ...botConfig,
+    // Discord bot credentials are intentionally named by what they represent:
+    // CLIENT_ID = bot/application ID
+    // DISCORD_TOKEN/TOKEN = bot authentication token
+    // SERVER_ID/GUILD_ID = Discord server (guild) ID
     token: process.env.DISCORD_TOKEN || process.env.TOKEN,
     clientId: process.env.CLIENT_ID,
-    // Retained for tutorial/setup compatibility; not used for command registration.
-    guildId: process.env.GUILD_ID,
+    serverId: process.env.SERVER_ID || process.env.GUILD_ID,
+
+    // Backwards-compatible alias for older commands/config consumers.
+    // This is the SERVER ID, never the bot/application ID.
+    guildId: process.env.SERVER_ID || process.env.GUILD_ID,
 
     shop: {
       ...botConfig.shop,
@@ -31,7 +38,6 @@ const appConfig = {
     },
   },
 
-  // PostgreSQL configuration - Primary production database
   postgresql: {
     ...pgConfig,
   },
