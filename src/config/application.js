@@ -1,10 +1,17 @@
 import { fileURLToPath } from "url";
 import path from "path";
-import botConfig, { validateConfig } from "./bot.js";
+import botConfig from "./bot.js";
 import { shopConfig as shop } from "./shop/index.js";
 import { pgConfig } from "./database/postgres.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Keep credentials separate by purpose. Never use a server ID as a bot ID,
+// and never pass a token through CLIENT_ID/SERVER_ID.
+const rawToken = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN || "";
+const discordToken = rawToken.trim().replace(/^Bot\s+/i, "");
+const clientId = (process.env.CLIENT_ID || "").trim();
+const serverId = (process.env.SERVER_ID || "").trim();
 
 const appConfig = {
   paths: {
@@ -20,17 +27,16 @@ const appConfig = {
 
   bot: {
     ...botConfig,
-    // Discord bot credentials are intentionally named by what they represent:
-    // CLIENT_ID = bot/application ID
-    // DISCORD_TOKEN/TOKEN = bot authentication token
-    // SERVER_ID/GUILD_ID = Discord server (guild) ID
-    token: process.env.DISCORD_TOKEN || process.env.TOKEN,
-    clientId: process.env.CLIENT_ID,
-    serverId: process.env.SERVER_ID || process.env.GUILD_ID,
+    // DISCORD_TOKEN/BOT_TOKEN/TOKEN = bot authentication token only.
+    // CLIENT_ID = Discord application/bot ID only.
+    // SERVER_ID = Discord server/guild ID only.
+    token: discordToken,
+    clientId,
+    serverId,
 
-    // Backwards-compatible alias for older commands/config consumers.
+    // Backwards-compatible alias for older feature consumers.
     // This is the SERVER ID, never the bot/application ID.
-    guildId: process.env.SERVER_ID || process.env.GUILD_ID,
+    guildId: serverId,
 
     shop: {
       ...botConfig.shop,
