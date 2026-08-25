@@ -152,7 +152,6 @@ class TitanBot extends Client {
 
     app.get('/', (req, res) => res.status(200).json({ message: 'TitanBot System Online', version: pkg.version, timestamp: new Date().toISOString() }));
 
-    // Register Vortex07 API on the same Express server. The extension talks to these routes.
     const vortexDb = this.db?.db;
     if (vortexDb && typeof vortexDb.query === 'function') {
       registerVortexApi(app, vortexDb);
@@ -232,12 +231,18 @@ class TitanBot extends Client {
   }
 
   async registerCommands() {
+    // Keep Discord application ID and server ID separate all the way to the REST route.
     const clientId = this.config.bot.clientId || process.env.CLIENT_ID || this.user?.id;
-    if (!clientId) { logger.error('❌ Cannot register slash commands: CLIENT_ID is missing.'); return false; }
+    if (!clientId) {
+      logger.error('❌ Cannot register slash commands: Discord application ID (CLIENT_ID) is missing.');
+      return false;
+    }
+
+    const serverId = this.config.bot.serverId || process.env.SERVER_ID;
+    logger.info(`Registering ${this.commands.size} slash commands to ${serverId ? `server ${serverId}` : 'global application scope'}...`);
+
     try {
-      const guildId = process.env.GUILD_ID || process.env.TEST_GUILD_ID || this.config.bot.guildId;
-      logger.info(`Registering ${this.commands.size} slash commands to ${guildId ? `guild ${guildId}` : 'global application scope'}...`);
-      await registerSlashCommands(this, { clientId });
+      await registerSlashCommands(this, { clientId, serverId });
       return true;
     } catch (error) {
       logger.error(`❌ Slash command registration failed: ${error?.message || error}`);
