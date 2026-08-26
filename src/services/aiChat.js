@@ -1,6 +1,6 @@
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-const PREFERRED_MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+const PREFERRED_MODELS = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const MAX_HISTORY = 8;
 const MAX_CHANNEL_MESSAGES = 12;
 const MAX_INPUT = 1800;
@@ -29,7 +29,7 @@ async function resolveModel(force = false) {
   const data = await response.json();
   const available = (data.models || []).filter(m => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('generateContent')).map(m => String(m.name || '').replace(/^models\//, '')).filter(Boolean);
   if (!available.length) throw new Error('Gemini API returned no models that support generateContent. Check the API key and enabled Gemini API.');
-  resolvedModel = PREFERRED_MODELS.find(model => available.includes(model)) || available.find(model => /flash/i.test(model)) || available[0];
+  resolvedModel = PREFERRED_MODELS.find(model => available.includes(model)) || available.find(model => /^gemini-3\..*-flash/i.test(model)) || available.find(model => /flash/i.test(model)) || available[0];
   resolvedAt = Date.now();
   return resolvedModel;
 }
@@ -53,9 +53,10 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
     let model = await resolveModel(); let response;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const parts = [{ text }, ...(await mediaParts(images))];
-      response = await fetch(`${GEMINI_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: 400, temperature: 0.7 } }), signal: AbortSignal.timeout(45000) });
+      response = await fetch(`${GEMINI_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: 400 } }), signal: AbortSignal.timeout(45000) });
       if (response.status !== 404 || attempt === 1) break;
-      resolvedModel = null; model = await resolveModel(true);
+      resolvedModel = null;
+      model = await resolveModel(true);
     }
     if (!response.ok) { const raw = await response.text().catch(() => ''); const error = new Error(`Gemini AI HTTP ${response.status}: ${raw.slice(0, 500)}`); error.status = response.status; throw error; }
     const data = await response.json(); const answer = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
