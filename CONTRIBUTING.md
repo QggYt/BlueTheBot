@@ -96,7 +96,3 @@ When reporting a bug, include:
 - Relevant logs (`LOG_LEVEL=debug` can help locally)
 - Whether you use PostgreSQL or memory fallback
 - Bot version / commit hash if known
-
-## License
-
-By contributing, you agree that your contributions will be licensed under the same [MIT License](LICENSE) that covers this project.
