@@ -130,6 +130,7 @@ async function handleCountingGame(message, client) {
     const validCount = isValidCountingMessage(content, config);
     const invalidAttempt = !validCount || message.author.id === config.lastUserId;
     if (invalidAttempt) {
+      await message.react('❌').catch((error) => logger.warn('Failed to add counting failure reaction:', error?.message));
       await message.delete().catch(() => {});
       await saveCountingGameConfig(client, message.guild.id, { ...config, nextNumber: 1, lastUserId: null, currentStreak: 0 });
       const failureMessage = await message.channel.send(`❌ Count broken by <@${message.author.id}>. The sequence has been reset to **1**.`);
