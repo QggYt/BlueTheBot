@@ -137,6 +137,7 @@ async function handleCountingGame(message, client) {
       return true;
     }
     await recordCorrectCount(client, message.guild.id, message.author.id);
+    await message.react('✅').catch((error) => logger.warn('Failed to add counting success reaction:', error?.message));
     return true;
   } catch (error) { logger.error('Error handling counting game:', error); return false; }
 }
