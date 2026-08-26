@@ -1,4 +1,5 @@
 import { Events } from 'discord.js';
+import { getVoiceConnection } from '@discordjs/voice';
 import { logger } from '../utils/logger.js';
 import { getLevelingConfig, getUserLevelData } from '../services/leveling/leveling.js';
 import { addXp } from '../services/leveling/xpSystem.js';
@@ -16,9 +17,13 @@ import { getCountingGameConfig, saveCountingGameConfig, isValidCountingMessage, 
 import { askAI, isAIConfigured, isAIEnabled } from '../services/aiChat.js';
 import { handleAIServerManagement } from '../services/aiServerManager.js';
 import { checkAutoMod } from '../services/autoModService.js';
+import { speakInVoice } from '../services/tts/ttsService.js';
 
 const MESSAGE_XP_RATE_LIMIT_ATTEMPTS = 12;
 const MESSAGE_XP_RATE_LIMIT_WINDOW_MS = 10000;
+const TTS_MAX_MESSAGE_LENGTH = 500;
+const TTS_COOLDOWN_MS = 1200;
+const ttsLastSpoken = new Map();
 
 export default {
   name: Events.MessageCreate,
@@ -26,6 +31,10 @@ export default {
     try {
       if (message.author.bot || !message.guild) return;
       logger.debug('Message received', { event: 'message.received', guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id });
+
+      // If the bot is already in voice, automatically read messages from users
+      // who are in the same voice channel. This makes /join work as live TTS.
+      await handleAutomaticTTS(message, client);
 
       const autoMod = await checkAutoMod(message);
       if (autoMod.blocked) {
@@ -42,8 +51,6 @@ export default {
           return;
         }
 
-        // Owner-only natural-language server management runs before normal AI chat.
-        // The manager performs Discord permission checks for each individual action.
         if (cleaned) {
           try {
             const management = await handleAIServerManagement({ message, request: cleaned });
@@ -113,6 +120,34 @@ export default {
     } catch (error) { logger.error('Error in messageCreate event:', error); }
   }
 };
+
+async function handleAutomaticTTS(message, client) {
+  try {
+    const connection = getVoiceConnection(message.guild.id);
+    if (!connection || !message.content?.trim()) return;
+
+    const botChannelId = connection.joinConfig.channelId;
+    const memberChannelId = message.member?.voice?.channelId;
+    if (!botChannelId || memberChannelId !== botChannelId) return;
+
+    // Ignore command-like messages and avoid flooding the TTS provider.
+    const text = message.content
+      .replace(/<@!?\d+>/g, '')
+      .replace(/<#[0-9]+>/g, 'channel')
+      .replace(/<@&\d+>/g, '')
+      .trim();
+    if (!text || text.startsWith('/') || text.length > TTS_MAX_MESSAGE_LENGTH) return;
+
+    const now = Date.now();
+    const last = ttsLastSpoken.get(message.guild.id) || 0;
+    if (now - last < TTS_COOLDOWN_MS) return;
+    ttsLastSpoken.set(message.guild.id, now);
+
+    await speakInVoice(message.member.voice.channel, `${message.author.username} says: ${text}`, 'en');
+  } catch (error) {
+    logger.warn('Automatic TTS failed:', error?.message || error);
+  }
+}
 
 async function handlePrefixCommand(message, client) {
   try {
