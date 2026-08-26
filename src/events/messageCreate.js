@@ -14,6 +14,7 @@ import { createEmbed } from '../utils/embeds.js';
 import { isCommandEnabled } from '../services/commandAccessService.js';
 import { getCountingGameConfig, saveCountingGameConfig, isValidCountingMessage, recordCorrectCount } from '../services/countingGameService.js';
 import { askAI, isAIConfigured, isAIEnabled } from '../services/aiChat.js';
+import { handleAIServerManagement } from '../services/aiServerManager.js';
 import { checkAutoMod } from '../services/autoModService.js';
 
 const MESSAGE_XP_RATE_LIMIT_ATTEMPTS = 12;
@@ -39,6 +40,22 @@ export default {
         if (!cleaned && !message.attachments.some(a => a.contentType?.startsWith('image/'))) {
           await message.reply({ content: `Hey ${message.author}! 👋 I'm **${client.user.username}**. Mention me with a question and I'll answer, or use \/help for commands.` }).catch(error => logger.warn('Failed to reply to bot mention:', error?.message));
           return;
+        }
+
+        // Owner-only natural-language server management runs before normal AI chat.
+        // The manager performs Discord permission checks for each individual action.
+        if (cleaned) {
+          try {
+            const management = await handleAIServerManagement({ message, request: cleaned });
+            if (management.handled) {
+              await message.reply({ content: management.message }).catch(error => logger.warn('Failed to reply to AI server management:', error?.message));
+              return;
+            }
+          } catch (error) {
+            logger.error('AI server management failed:', error);
+            await message.reply({ content: `❌ I couldn't complete that server change: ${error?.message || 'unknown error'}` }).catch(() => {});
+            return;
+          }
         }
 
         const guildConfig = await getGuildConfig(client, message.guild.id);
