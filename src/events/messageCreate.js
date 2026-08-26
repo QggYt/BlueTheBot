@@ -92,7 +92,8 @@ export default {
           const replyOptions = { content: answer, allowedMentions: { users: allowedUsers, roles: allowedRoles } };
           if (thinking) await thinking.edit(replyOptions); else await message.reply(replyOptions);
 
-          // Speak the final answer directly. The temporary Thinking message is never spoken.
+          // Speak the final AI answer, not the temporary Thinking message.
+          // Bot TTS has its own path and does not share the user-message cooldown.
           await speakBotMessage({ guild: message.guild, content: answer }, client);
         } catch (error) {
           logger.error('AI reply failed:', error);
@@ -148,11 +149,9 @@ async function speakBotMessage(message, client) {
     const voiceChannel = guild.channels.cache.get(voiceChannelId);
     if (!voiceChannel) return;
 
-    const now = Date.now();
-    const last = ttsLastSpoken.get(guild.id) || 0;
-    if (now - last < TTS_COOLDOWN_MS) return;
-    ttsLastSpoken.set(guild.id, now);
-
+    // Do NOT use ttsLastSpoken here. User messages and bot replies have
+    // separate TTS timing, so the final bot answer cannot be suppressed
+    // just because the user's message was spoken moments earlier.
     await speakInVoice(voiceChannel, `Blue says: ${text}`, 'en');
   } catch (error) {
     logger.warn('Bot TTS failed:', error?.message || error);
