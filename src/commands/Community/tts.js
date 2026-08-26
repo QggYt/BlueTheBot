@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import { leaveVoice, speakInVoice } from '../../services/tts/ttsService.js';
+import { speakInVoice } from '../../services/tts/ttsService.js';
 
 export default {
     data: new SlashCommandBuilder()
@@ -48,19 +48,5 @@ export default {
         } catch (error) {
             await interaction.editReply(`❌ TTS failed: ${error?.message || 'Unknown error'}`);
         }
-    },
-};
-
-export const ttsStop = {
-    data: new SlashCommandBuilder()
-        .setName('tts-stop')
-        .setDescription('Stop TTS and leave the voice channel'),
-
-    async execute(interaction) {
-        const stopped = leaveVoice(interaction.guildId);
-        await interaction.reply({
-            content: stopped ? '⏹️ TTS stopped and I left the voice channel.' : '❌ I am not using TTS in this server.',
-            flags: MessageFlags.Ephemeral,
-        });
     },
 };
