@@ -1,6 +1,6 @@
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-const PREFERRED_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+const PREFERRED_MODELS = ['gemini-3.6-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 const MAX_HISTORY = 8;
 const MAX_CHANNEL_MESSAGES = 12;
 const MAX_INPUT = 1800;
