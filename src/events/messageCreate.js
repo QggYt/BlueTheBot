@@ -30,14 +30,7 @@ export default {
   async execute(message, client) {
     try {
       if (!message.guild) return;
-
-      // Ignore other bots, but allow Blue's own messages through TTS.
-      if (message.author.bot) {
-        if (client.user?.id === message.author.id) {
-          await handleAutomaticTTS(message, client);
-        }
-        return;
-      }
+      if (message.author.bot) return;
 
       logger.debug('Message received', { event: 'message.received', guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id });
 
@@ -54,7 +47,8 @@ export default {
       if (client.user && message.mentions.users.has(client.user.id)) {
         const cleaned = message.content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
         if (!cleaned && !message.attachments.some(a => a.contentType?.startsWith('image/'))) {
-          await message.reply({ content: `Hey ${message.author}! 👋 I'm **${client.user.username}**. Mention me with a question and I'll answer, or use \/help for commands.` }).catch(error => logger.warn('Failed to reply to bot mention:', error?.message));
+          const reply = await message.reply({ content: `Hey ${message.author}! 👋 I'm **${client.user.username}**. Mention me with a question and I'll answer, or use \/help for commands.` }).catch(() => null);
+          if (reply) await speakBotMessage(reply, client);
           return;
         }
 
@@ -62,23 +56,27 @@ export default {
           try {
             const management = await handleAIServerManagement({ message, request: cleaned });
             if (management.handled) {
-              await message.reply({ content: management.message }).catch(error => logger.warn('Failed to reply to AI server management:', error?.message));
+              const reply = await message.reply({ content: management.message }).catch(() => null);
+              if (reply) await speakBotMessage(reply, client);
               return;
             }
           } catch (error) {
             logger.error('AI server management failed:', error);
-            await message.reply({ content: `❌ I couldn't complete that server change: ${error?.message || 'unknown error'}` }).catch(() => {});
+            const reply = await message.reply({ content: `❌ I couldn't complete that server change: ${error?.message || 'unknown error'}` }).catch(() => null);
+            if (reply) await speakBotMessage(reply, client);
             return;
           }
         }
 
         const guildConfig = await getGuildConfig(client, message.guild.id);
         if (!isAIEnabled(guildConfig)) {
-          await message.reply({ content: 'AI is currently disabled for this server or globally.' }).catch(error => logger.warn('Failed to reply to disabled AI:', error?.message));
+          const reply = await message.reply({ content: 'AI is currently disabled for this server or globally.' }).catch(() => null);
+          if (reply) await speakBotMessage(reply, client);
           return;
         }
         if (!isAIConfigured()) {
-          await message.reply({ content: 'I can answer questions, but the local AI service is not configured yet.' }).catch(error => logger.warn('Failed to reply to AI configuration error:', error?.message));
+          const reply = await message.reply({ content: 'I can answer questions, but the local AI service is not configured yet.' }).catch(() => null);
+          if (reply) await speakBotMessage(reply, client);
           return;
         }
 
@@ -93,6 +91,9 @@ export default {
           const answer = await askAI({ guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id, userName: message.author.username, question: cleaned || 'Describe the attached image(s).', botName: 'Blue', allowedMentions, channelMessages, images });
           const replyOptions = { content: answer, allowedMentions: { users: allowedUsers, roles: allowedRoles } };
           if (thinking) await thinking.edit(replyOptions); else await message.reply(replyOptions);
+
+          // Speak the final answer directly. The temporary Thinking message is never spoken.
+          await speakBotMessage({ guild: message.guild, content: answer }, client);
         } catch (error) {
           logger.error('AI reply failed:', error);
           const content = 'I couldn\'t reach my local AI service right now. Check that the local model is running.';
@@ -118,11 +119,7 @@ async function handleAutomaticTTS(message, client) {
     const memberChannelId = message.member?.voice?.channelId;
     if (!botChannelId || memberChannelId !== botChannelId) return;
 
-    const text = message.content
-      .replace(/<@!?\d+>/g, '')
-      .replace(/<#[0-9]+>/g, 'channel')
-      .replace(/<@&\d+>/g, '')
-      .trim();
+    const text = cleanTTSContent(message.content);
     if (!text || text.startsWith('/') || text.length > TTS_MAX_MESSAGE_LENGTH) return;
 
     const now = Date.now();
@@ -130,11 +127,45 @@ async function handleAutomaticTTS(message, client) {
     if (now - last < TTS_COOLDOWN_MS) return;
     ttsLastSpoken.set(message.guild.id, now);
 
-    const speakerName = message.author.id === client.user?.id ? 'Blue' : message.author.username;
-    await speakInVoice(message.member.voice.channel, `${speakerName} says: ${text}`, 'en');
+    await speakInVoice(message.member.voice.channel, `${message.author.username} says: ${text}`, 'en');
   } catch (error) {
     logger.warn('Automatic TTS failed:', error?.message || error);
   }
+}
+
+async function speakBotMessage(message, client) {
+  try {
+    const guild = message.guild;
+    const text = cleanTTSContent(message.content || '');
+    if (!guild || !text || text === '🤔 Thinking...' || text.startsWith('/') || text.length > TTS_MAX_MESSAGE_LENGTH) return;
+
+    const connection = getVoiceConnection(guild.id);
+    if (!connection) return;
+
+    const voiceChannelId = connection.joinConfig.channelId;
+    if (!voiceChannelId) return;
+
+    const voiceChannel = guild.channels.cache.get(voiceChannelId);
+    if (!voiceChannel) return;
+
+    const now = Date.now();
+    const last = ttsLastSpoken.get(guild.id) || 0;
+    if (now - last < TTS_COOLDOWN_MS) return;
+    ttsLastSpoken.set(guild.id, now);
+
+    await speakInVoice(voiceChannel, `Blue says: ${text}`, 'en');
+  } catch (error) {
+    logger.warn('Bot TTS failed:', error?.message || error);
+  }
+}
+
+function cleanTTSContent(content) {
+  return content
+    .replace(/<@!?\d+>/g, '')
+    .replace(/<#[0-9]+>/g, 'channel')
+    .replace(/<@&\d+>/g, '')
+    .replace(/https?:\/\/\S+/gi, '')
+    .trim();
 }
 
 async function handlePrefixCommand(message, client) {
