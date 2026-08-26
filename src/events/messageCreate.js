@@ -29,11 +29,18 @@ export default {
   name: Events.MessageCreate,
   async execute(message, client) {
     try {
-      if (message.author.bot || !message.guild) return;
+      if (!message.guild) return;
+
+      // Ignore other bots, but allow Blue's own messages through TTS.
+      if (message.author.bot) {
+        if (client.user?.id === message.author.id) {
+          await handleAutomaticTTS(message, client);
+        }
+        return;
+      }
+
       logger.debug('Message received', { event: 'message.received', guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id });
 
-      // If the bot is already in voice, automatically read messages from users
-      // who are in the same voice channel. This makes /join work as live TTS.
       await handleAutomaticTTS(message, client);
 
       const autoMod = await checkAutoMod(message);
@@ -80,29 +87,10 @@ export default {
           const allowedUsers = message.mentions.users.filter(user => user.id !== client.user.id).map(user => user.id);
           const allowedRoles = message.mentions.roles.map(role => role.id);
           const allowedMentions = [...allowedUsers.map(id => `<@${id}>`), ...allowedRoles.map(id => `<@&${id}>`)];
-
           const recent = await message.channel.messages.fetch({ limit: 12 }).catch(() => null);
-          const channelMessages = recent ? [...recent.values()]
-            .filter(m => !m.author.bot && m.id !== message.id)
-            .reverse()
-            .map(m => ({ author: m.author.username, content: m.content })) : [];
-
-          const images = [...message.attachments.values()]
-            .filter(a => a.contentType?.startsWith('image/'))
-            .slice(0, 3)
-            .map(a => ({ url: a.url, contentType: a.contentType }));
-
-          const answer = await askAI({
-            guildId: message.guild.id,
-            channelId: message.channel.id,
-            userId: message.author.id,
-            userName: message.author.username,
-            question: cleaned || 'Describe the attached image(s).',
-            botName: 'Blue',
-            allowedMentions,
-            channelMessages,
-            images,
-          });
+          const channelMessages = recent ? [...recent.values()].filter(m => !m.author.bot && m.id !== message.id).reverse().map(m => ({ author: m.author.username, content: m.content })) : [];
+          const images = [...message.attachments.values()].filter(a => a.contentType?.startsWith('image/')).slice(0, 3).map(a => ({ url: a.url, contentType: a.contentType }));
+          const answer = await askAI({ guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id, userName: message.author.username, question: cleaned || 'Describe the attached image(s).', botName: 'Blue', allowedMentions, channelMessages, images });
           const replyOptions = { content: answer, allowedMentions: { users: allowedUsers, roles: allowedRoles } };
           if (thinking) await thinking.edit(replyOptions); else await message.reply(replyOptions);
         } catch (error) {
@@ -130,7 +118,6 @@ async function handleAutomaticTTS(message, client) {
     const memberChannelId = message.member?.voice?.channelId;
     if (!botChannelId || memberChannelId !== botChannelId) return;
 
-    // Ignore command-like messages and avoid flooding the TTS provider.
     const text = message.content
       .replace(/<@!?\d+>/g, '')
       .replace(/<#[0-9]+>/g, 'channel')
@@ -143,7 +130,8 @@ async function handleAutomaticTTS(message, client) {
     if (now - last < TTS_COOLDOWN_MS) return;
     ttsLastSpoken.set(message.guild.id, now);
 
-    await speakInVoice(message.member.voice.channel, `${message.author.username} says: ${text}`, 'en');
+    const speakerName = message.author.id === client.user?.id ? 'Blue' : message.author.username;
+    await speakInVoice(message.member.voice.channel, `${speakerName} says: ${text}`, 'en');
   } catch (error) {
     logger.warn('Automatic TTS failed:', error?.message || error);
   }
