@@ -2,7 +2,8 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.7-flash';
 const CONFIGURED_GEMINI_MODEL = String(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).replace(/^models\//, '');
-const GEMINI_MODELS = [...new Set([DEFAULT_GEMINI_MODEL, CONFIGURED_GEMINI_MODEL, 'gemini-3.6-flash'])];
+// Keep stable models only. A bad GEMINI_MODEL setting must not trap the bot on an unavailable endpoint.
+const GEMINI_MODELS = [...new Set([DEFAULT_GEMINI_MODEL, 'gemini-3.6-flash', 'gemini-2.5-flash', CONFIGURED_GEMINI_MODEL])];
 const MAX_HISTORY = 8;
 const MAX_CHANNEL_MESSAGES = 12;
 const MAX_INPUT = 1800;
@@ -10,7 +11,7 @@ const MAX_OUTPUT = 1900;
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const conversations = new Map();
-let resolvedModel = GEMINI_MODELS[0];
+let resolvedModel = DEFAULT_GEMINI_MODEL;
 let globalAIEnabled = true;
 let quotaRetryUntil = 0;
 
@@ -40,7 +41,7 @@ async function resolveModel() {
       }
     } catch (_) {}
   }
-  throw new Error(`No configured Gemini model is available. Tried: ${GEMINI_MODELS.join(', ')}`);
+  throw new Error(`No available Gemini model. Tried: ${GEMINI_MODELS.join(', ')}`);
 }
 
 function getRetrySeconds(raw) {
@@ -49,7 +50,7 @@ function getRetrySeconds(raw) {
 }
 
 function quotaError(seconds) {
-  const error = new Error(`Gemini quota is temporarily exhausted. Please retry in about ${seconds}s.`);
+  const error = new Error(`Gemini API quota is temporarily exhausted. Please retry in about ${seconds}s.`);
   error.status = 429;
   error.retryAfter = seconds;
   return error;
@@ -84,13 +85,13 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
   const text = `${system}\n\nRecent channel context:\n${contextText || '(none)'}\n\nConversation:\n${history.slice(0, -1).map(h => `${h.role}: ${sanitize(h.content)}`).join('\n') || '(none)'}\n\nUser: ${safeQuestion}`;
   try {
     if (Date.now() < quotaRetryUntil) throw quotaError(Math.ceil((quotaRetryUntil - Date.now()) / 1000));
+
     await resolveModel();
     const parts = [{ text }, ...(await mediaParts(images))];
+    let last404 = null;
 
-    let modelsToTry = [resolvedModel, ...GEMINI_MODELS.filter(model => model !== resolvedModel)];
-    let lastError = null;
-
-    for (const model of modelsToTry) {
+    // Never burn quota by trying every model after a 429. A quota error applies to the API key/project.
+    for (const model of [resolvedModel, ...GEMINI_MODELS.filter(m => m !== resolvedModel)]) {
       const { response, raw } = await generateWithModel(model, parts);
       if (response.ok) {
         resolvedModel = model;
@@ -102,13 +103,12 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
 
       if (response.status === 429) {
         const seconds = getRetrySeconds(raw);
-        quotaRetryUntil = Date.now() + (seconds * 1000);
-        lastError = quotaError(seconds);
-        continue;
+        quotaRetryUntil = Date.now() + seconds * 1000;
+        throw quotaError(seconds);
       }
 
       if (response.status === 404 || /no longer available|not[_ -]?found/i.test(raw)) {
-        lastError = new Error(`Gemini AI HTTP 404: ${raw.slice(0, 500)}`);
+        last404 = new Error(`Gemini model ${model} is unavailable. Tried the next supported model.`);
         continue;
       }
 
@@ -117,7 +117,7 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
       throw error;
     }
 
-    throw lastError || new Error('No Gemini model was able to generate a response');
+    throw last404 || new Error('No Gemini model was able to generate a response');
   } catch (error) {
     const current = conversations.get(key) || [];
     if (current.at(-1)?.role === 'user' && current.at(-1)?.content === safeQuestion) current.pop();
@@ -125,4 +125,5 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
     throw error;
   }
 }
+
 export function clearAIConversation(guildId, channelId, userId) { conversations.delete(getKey(guildId, channelId, userId)); }
