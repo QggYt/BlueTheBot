@@ -1,8 +1,9 @@
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-const DEFAULT_GEMINI_MODEL = 'gemini-3.7-flash';
+// Keep the default on the currently supported model instead of the retired/unstable model.
+const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
 const CONFIGURED_GEMINI_MODEL = String(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).replace(/^models\//, '');
-const GEMINI_MODELS = [...new Set([DEFAULT_GEMINI_MODEL, 'gemini-3.6-flash', 'gemini-2.5-flash', CONFIGURED_GEMINI_MODEL])];
+const GEMINI_MODELS = [...new Set([CONFIGURED_GEMINI_MODEL, DEFAULT_GEMINI_MODEL, 'gemini-2.5-flash'])];
 const MAX_HISTORY = 8;
 const MAX_CHANNEL_MESSAGES = 12;
 const MAX_INPUT = 1800;
@@ -10,7 +11,7 @@ const MAX_OUTPUT = 1900;
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const conversations = new Map();
-let resolvedModel = DEFAULT_GEMINI_MODEL;
+let resolvedModel = CONFIGURED_GEMINI_MODEL;
 let globalAIEnabled = true;
 let quotaRetryUntil = 0;
 
@@ -32,7 +33,9 @@ async function verifyModel(model) {
 
 async function resolveModel() {
   if (!GEMINI_KEY) return null;
-  for (const model of GEMINI_MODELS) {
+  // Prefer the configured model, then the current default. Never prefer the retired 2.5 model.
+  const candidates = [...new Set([CONFIGURED_GEMINI_MODEL, DEFAULT_GEMINI_MODEL])];
+  for (const model of candidates) {
     try {
       if (await verifyModel(model)) {
         resolvedModel = model;
@@ -40,7 +43,7 @@ async function resolveModel() {
       }
     } catch (_) {}
   }
-  throw new Error(`No available Gemini model. Tried: ${GEMINI_MODELS.join(', ')}`);
+  throw new Error(`No available Gemini model. Tried: ${candidates.join(', ')}`);
 }
 
 function getRetrySeconds(raw) {
@@ -56,7 +59,7 @@ function quotaError(seconds) {
 }
 
 function serviceUnavailableError() {
-  const error = new Error('Gemini is temporarily busy. The bot will retry automatically with another available model.');
+  const error = new Error('Gemini is temporarily busy. The bot could not reach the AI provider. Please try again shortly.');
   error.status = 503;
   return error;
 }
@@ -91,15 +94,16 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
   try {
     if (Date.now() < quotaRetryUntil) throw quotaError(Math.ceil((quotaRetryUntil - Date.now()) / 1000));
 
-    await resolveModel();
+    const initialModel = await resolveModel();
     const parts = [{ text }, ...(await mediaParts(images))];
     let last404 = null;
     let last503 = null;
 
-    // 404 = unavailable model, so move to the next model.
-    // 503 = temporary provider overload, so briefly retry that model and then try the next one.
-    // 429 = project quota, so stop immediately and never burn more quota.
-    for (const model of [...new Set([resolvedModel, ...GEMINI_MODELS.filter(m => m !== resolvedModel)])]) {
+    // 404 = unavailable model: move on.
+    // 503 = temporary provider overload: retry once, then move on.
+    // 429 = project quota: stop immediately so we do not waste requests.
+    const models = [...new Set([initialModel, DEFAULT_GEMINI_MODEL])];
+    for (const model of models) {
       let attempted503Retry = false;
       for (;;) {
         const { response, raw } = await generateWithModel(model, parts);
