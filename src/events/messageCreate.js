@@ -75,7 +75,7 @@ export default {
           return;
         }
         if (!isAIConfigured()) {
-          const reply = await message.reply({ content: 'I can answer questions, but the local AI service is not configured yet.' }).catch(() => null);
+          const reply = await message.reply({ content: 'I can answer questions, but GEMINI_API_KEY is not configured.' }).catch(() => null);
           if (reply) await speakBotMessage(reply, client);
           return;
         }
@@ -84,20 +84,27 @@ export default {
         try {
           const allowedUsers = message.mentions.users.filter(user => user.id !== client.user.id).map(user => user.id);
           const allowedRoles = message.mentions.roles.map(role => role.id);
-          const allowedMentions = [...allowedUsers.map(id => `<@${id}>`), ...allowedRoles.map(id => `<@&${id}>`)];
           const recent = await message.channel.messages.fetch({ limit: 12 }).catch(() => null);
           const channelMessages = recent ? [...recent.values()].filter(m => !m.author.bot && m.id !== message.id).reverse().map(m => ({ author: m.author.username, content: m.content })) : [];
           const images = [...message.attachments.values()].filter(a => a.contentType?.startsWith('image/')).slice(0, 3).map(a => ({ url: a.url, contentType: a.contentType }));
           const answer = await askAI({ guildId: message.guild.id, channelId: message.channel.id, userId: message.author.id, userName: message.author.username, question: cleaned || 'Describe the attached image(s).', botName: 'Blue', allowedMentions, channelMessages, images });
           const replyOptions = { content: answer, allowedMentions: { users: allowedUsers, roles: allowedRoles } };
           if (thinking) await thinking.edit(replyOptions); else await message.reply(replyOptions);
-
-          // Speak the final AI answer, not the temporary Thinking message.
-          // Bot TTS has its own path and does not share the user-message cooldown.
           await speakBotMessage({ guild: message.guild, content: answer }, client);
         } catch (error) {
           logger.error('AI reply failed:', error);
-          const content = 'I couldn\'t reach my local AI service right now. Check that the local model is running.';
+          let content = '❌ AI request failed.';
+          if (error?.status === 429) {
+            content = `⏳ Gemini AI quota is temporarily exhausted. Please try again in about ${error.retryAfter || 10}s.`;
+          } else if (error?.status === 401 || error?.status === 403) {
+            content = '❌ Gemini API authentication failed. Check GEMINI_API_KEY.';
+          } else if (error?.status === 404) {
+            content = '❌ No supported Gemini model is available for this API key.';
+          } else if (/No available Gemini model|No Gemini model/i.test(error?.message || '')) {
+            content = '❌ No supported Gemini model is available for this API key.';
+          } else if (error?.name === 'AbortError' || /timeout/i.test(error?.message || '')) {
+            content = '⏳ Gemini AI took too long to respond. Please try again.';
+          }
           if (thinking) await thinking.edit({ content }).catch(() => {}); else await message.reply({ content }).catch(() => {});
         }
         return;
@@ -115,23 +122,17 @@ async function handleAutomaticTTS(message, client) {
   try {
     const connection = getVoiceConnection(message.guild.id);
     if (!connection || !message.content?.trim()) return;
-
     const botChannelId = connection.joinConfig.channelId;
     const memberChannelId = message.member?.voice?.channelId;
     if (!botChannelId || memberChannelId !== botChannelId) return;
-
     const text = cleanTTSContent(message.content);
     if (!text || text.startsWith('/') || text.length > TTS_MAX_MESSAGE_LENGTH) return;
-
     const now = Date.now();
     const last = ttsLastSpoken.get(message.guild.id) || 0;
     if (now - last < TTS_COOLDOWN_MS) return;
     ttsLastSpoken.set(message.guild.id, now);
-
     await speakInVoice(message.member.voice.channel, `${message.author.username} says: ${text}`, 'en');
-  } catch (error) {
-    logger.warn('Automatic TTS failed:', error?.message || error);
-  }
+  } catch (error) { logger.warn('Automatic TTS failed:', error?.message || error); }
 }
 
 async function speakBotMessage(message, client) {
@@ -139,32 +140,18 @@ async function speakBotMessage(message, client) {
     const guild = message.guild;
     const text = cleanTTSContent(message.content || '');
     if (!guild || !text || text === '🤔 Thinking...' || text.startsWith('/') || text.length > TTS_MAX_MESSAGE_LENGTH) return;
-
     const connection = getVoiceConnection(guild.id);
     if (!connection) return;
-
     const voiceChannelId = connection.joinConfig.channelId;
     if (!voiceChannelId) return;
-
     const voiceChannel = guild.channels.cache.get(voiceChannelId);
     if (!voiceChannel) return;
-
-    // Do NOT use ttsLastSpoken here. User messages and bot replies have
-    // separate TTS timing, so the final bot answer cannot be suppressed
-    // just because the user's message was spoken moments earlier.
     await speakInVoice(voiceChannel, `Blue says: ${text}`, 'en');
-  } catch (error) {
-    logger.warn('Bot TTS failed:', error?.message || error);
-  }
+  } catch (error) { logger.warn('Bot TTS failed:', error?.message || error); }
 }
 
 function cleanTTSContent(content) {
-  return content
-    .replace(/<@!?\d+>/g, '')
-    .replace(/<#[0-9]+>/g, 'channel')
-    .replace(/<@&\d+>/g, '')
-    .replace(/https?:\/\/\S+/gi, '')
-    .trim();
+  return content.replace(/<@!?\d+>/g, '').replace(/<#[0-9]+>/g, 'channel').replace(/<@&\d+>/g, '').replace(/https?:\/\/\S+/gi, '').trim();
 }
 
 async function handlePrefixCommand(message, client) {
