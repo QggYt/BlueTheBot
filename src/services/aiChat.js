@@ -1,9 +1,6 @@
 const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
-// Keep the default on the currently supported model instead of the retired/unstable model.
 const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
-const CONFIGURED_GEMINI_MODEL = String(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).replace(/^models\//, '');
-const GEMINI_MODELS = [...new Set([CONFIGURED_GEMINI_MODEL, DEFAULT_GEMINI_MODEL, 'gemini-2.5-flash'])];
 const MAX_HISTORY = 8;
 const MAX_CHANNEL_MESSAGES = 12;
 const MAX_INPUT = 1800;
@@ -11,7 +8,6 @@ const MAX_OUTPUT = 1900;
 const MAX_IMAGES = 3;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const conversations = new Map();
-let resolvedModel = CONFIGURED_GEMINI_MODEL;
 let globalAIEnabled = true;
 let quotaRetryUntil = 0;
 
@@ -24,27 +20,6 @@ export function isGlobalAIEnabled() { return globalAIEnabled; }
 export function setGlobalAIEnabled(enabled) { globalAIEnabled = Boolean(enabled); return globalAIEnabled; }
 export function isAIEnabled(guildConfig) { return globalAIEnabled && guildConfig?.ai?.enabled !== false; }
 export function isAIConfigured() { return Boolean(GEMINI_KEY); }
-
-async function verifyModel(model) {
-  if (!GEMINI_KEY) return false;
-  const response = await fetch(`${GEMINI_URL}/${encodeURIComponent(model)}?key=${encodeURIComponent(GEMINI_KEY)}`, { signal: AbortSignal.timeout(10000) });
-  return response.ok;
-}
-
-async function resolveModel() {
-  if (!GEMINI_KEY) return null;
-  // Prefer the configured model, then the current default. Never prefer the retired 2.5 model.
-  const candidates = [...new Set([CONFIGURED_GEMINI_MODEL, DEFAULT_GEMINI_MODEL])];
-  for (const model of candidates) {
-    try {
-      if (await verifyModel(model)) {
-        resolvedModel = model;
-        return model;
-      }
-    } catch (_) {}
-  }
-  throw new Error(`No available Gemini model. Tried: ${candidates.join(', ')}`);
-}
 
 function getRetrySeconds(raw) {
   const match = String(raw || '').match(/Please retry in\s+([\d.]+)s/i);
@@ -59,13 +34,13 @@ function quotaError(seconds) {
 }
 
 function serviceUnavailableError() {
-  const error = new Error('Gemini is temporarily busy. The bot could not reach the AI provider. Please try again shortly.');
+  const error = new Error('Gemini is temporarily busy. Please try again shortly.');
   error.status = 503;
   return error;
 }
 
-async function generateWithModel(model, parts) {
-  const response = await fetch(`${GEMINI_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`, {
+async function generateWithModel(parts) {
+  const response = await fetch(`${GEMINI_URL}/${DEFAULT_GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: 400 } }),
@@ -94,55 +69,35 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
   try {
     if (Date.now() < quotaRetryUntil) throw quotaError(Math.ceil((quotaRetryUntil - Date.now()) / 1000));
 
-    const initialModel = await resolveModel();
     const parts = [{ text }, ...(await mediaParts(images))];
-    let last404 = null;
-    let last503 = null;
+    let attempted503Retry = false;
 
-    // 404 = unavailable model: move on.
-    // 503 = temporary provider overload: retry once, then move on.
-    // 429 = project quota: stop immediately so we do not waste requests.
-    const models = [...new Set([initialModel, DEFAULT_GEMINI_MODEL])];
-    for (const model of models) {
-      let attempted503Retry = false;
-      for (;;) {
-        const { response, raw } = await generateWithModel(model, parts);
-        if (response.ok) {
-          resolvedModel = model;
-          const data = await response.json();
-          const answer = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
-          if (!answer) throw new Error('Gemini AI returned an empty response');
-          const result = trim(answer); remember(key, 'assistant', result); return result;
-        }
-
-        if (response.status === 429) {
-          const seconds = getRetrySeconds(raw);
-          quotaRetryUntil = Date.now() + seconds * 1000;
-          throw quotaError(seconds);
-        }
-
-        if (response.status === 503 || response.status === 502 || response.status === 504) {
-          last503 = serviceUnavailableError();
-          if (!attempted503Retry) {
-            attempted503Retry = true;
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            continue;
-          }
-          break;
-        }
-
-        if (response.status === 404 || /no longer available|not[_ -]?found/i.test(raw)) {
-          last404 = new Error(`Gemini model ${model} is unavailable. Trying the next supported model.`);
-          break;
-        }
-
-        const error = new Error(`Gemini AI HTTP ${response.status}: ${raw.slice(0, 500)}`);
-        error.status = response.status;
-        throw error;
+    for (;;) {
+      const { response, raw } = await generateWithModel(parts);
+      if (response.ok) {
+        const data = await response.json();
+        const answer = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
+        if (!answer) throw new Error('Gemini AI returned an empty response');
+        const result = trim(answer); remember(key, 'assistant', result); return result;
       }
-    }
 
-    throw last503 || last404 || new Error('No Gemini model was able to generate a response');
+      if (response.status === 429) {
+        const seconds = getRetrySeconds(raw);
+        quotaRetryUntil = Date.now() + seconds * 1000;
+        throw quotaError(seconds);
+      }
+
+      if (response.status === 503 || response.status === 502 || response.status === 504) {
+        if (!attempted503Retry) {
+          attempted503Retry = true;
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          continue;
+        }
+        throw serviceUnavailableError();
+      }
+
+      throw new Error(`Gemini AI HTTP ${response.status}: ${raw.slice(0, 500)}`);
+    }
   } catch (error) {
     const current = conversations.get(key) || [];
     if (current.at(-1)?.role === 'user' && current.at(-1)?.content === safeQuestion) current.pop();
