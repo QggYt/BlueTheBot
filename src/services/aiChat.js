@@ -2,7 +2,6 @@ const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.7-flash';
 const CONFIGURED_GEMINI_MODEL = String(process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).replace(/^models\//, '');
-// Keep stable models only. A bad GEMINI_MODEL setting must not trap the bot on an unavailable endpoint.
 const GEMINI_MODELS = [...new Set([DEFAULT_GEMINI_MODEL, 'gemini-3.6-flash', 'gemini-2.5-flash', CONFIGURED_GEMINI_MODEL])];
 const MAX_HISTORY = 8;
 const MAX_CHANNEL_MESSAGES = 12;
@@ -56,6 +55,12 @@ function quotaError(seconds) {
   return error;
 }
 
+function serviceUnavailableError() {
+  const error = new Error('Gemini is temporarily busy. The bot will retry automatically with another available model.');
+  error.status = 503;
+  return error;
+}
+
 async function generateWithModel(model, parts) {
   const response = await fetch(`${GEMINI_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`, {
     method: 'POST',
@@ -89,35 +94,51 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
     await resolveModel();
     const parts = [{ text }, ...(await mediaParts(images))];
     let last404 = null;
+    let last503 = null;
 
-    // Never burn quota by trying every model after a 429. A quota error applies to the API key/project.
-    for (const model of [resolvedModel, ...GEMINI_MODELS.filter(m => m !== resolvedModel)]) {
-      const { response, raw } = await generateWithModel(model, parts);
-      if (response.ok) {
-        resolvedModel = model;
-        const data = await response.json();
-        const answer = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
-        if (!answer) throw new Error('Gemini AI returned an empty response');
-        const result = trim(answer); remember(key, 'assistant', result); return result;
+    // 404 = unavailable model, so move to the next model.
+    // 503 = temporary provider overload, so briefly retry that model and then try the next one.
+    // 429 = project quota, so stop immediately and never burn more quota.
+    for (const model of [...new Set([resolvedModel, ...GEMINI_MODELS.filter(m => m !== resolvedModel)])]) {
+      let attempted503Retry = false;
+      for (;;) {
+        const { response, raw } = await generateWithModel(model, parts);
+        if (response.ok) {
+          resolvedModel = model;
+          const data = await response.json();
+          const answer = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
+          if (!answer) throw new Error('Gemini AI returned an empty response');
+          const result = trim(answer); remember(key, 'assistant', result); return result;
+        }
+
+        if (response.status === 429) {
+          const seconds = getRetrySeconds(raw);
+          quotaRetryUntil = Date.now() + seconds * 1000;
+          throw quotaError(seconds);
+        }
+
+        if (response.status === 503 || response.status === 502 || response.status === 504) {
+          last503 = serviceUnavailableError();
+          if (!attempted503Retry) {
+            attempted503Retry = true;
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            continue;
+          }
+          break;
+        }
+
+        if (response.status === 404 || /no longer available|not[_ -]?found/i.test(raw)) {
+          last404 = new Error(`Gemini model ${model} is unavailable. Trying the next supported model.`);
+          break;
+        }
+
+        const error = new Error(`Gemini AI HTTP ${response.status}: ${raw.slice(0, 500)}`);
+        error.status = response.status;
+        throw error;
       }
-
-      if (response.status === 429) {
-        const seconds = getRetrySeconds(raw);
-        quotaRetryUntil = Date.now() + seconds * 1000;
-        throw quotaError(seconds);
-      }
-
-      if (response.status === 404 || /no longer available|not[_ -]?found/i.test(raw)) {
-        last404 = new Error(`Gemini model ${model} is unavailable. Tried the next supported model.`);
-        continue;
-      }
-
-      const error = new Error(`Gemini AI HTTP ${response.status}: ${raw.slice(0, 500)}`);
-      error.status = response.status;
-      throw error;
     }
 
-    throw last404 || new Error('No Gemini model was able to generate a response');
+    throw last503 || last404 || new Error('No Gemini model was able to generate a response');
   } catch (error) {
     const current = conversations.get(key) || [];
     if (current.at(-1)?.role === 'user' && current.at(-1)?.content === safeQuestion) current.pop();
