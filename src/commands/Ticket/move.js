@@ -1,0 +1,4 @@
+import { SlashCommandBuilder, ChannelType, MessageFlags } from 'discord.js';
+import { getCurrentTicket, requireTicketManager } from './modules/extendedTicketCommands.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
+export default { data:new SlashCommandBuilder().setName('move').setDescription('Move the current ticket to a category').setDMPermission(false).addChannelOption(o=>o.setName('category').setDescription('Destination category').addChannelTypes(ChannelType.GuildCategory).setRequired(true)), category:'Ticket', async execute(i){await InteractionHelper.safeDefer(i,{flags:MessageFlags.Ephemeral});const t=await getCurrentTicket(i);if(!t||!(await requireTicketManager(i,t)))return;const c=i.options.getChannel('category');await i.channel.setParent(c.id,{lockPermissions:false});await InteractionHelper.safeEditReply(i,{content:`✅ Moved this ticket to **${c.name}**.`});}};
