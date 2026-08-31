@@ -31,6 +31,28 @@ const STATUS = {
   disabled: '🔴',
 };
 
+const CATEGORY_EMOJIS = {
+  Core: 'ℹ️',
+  Moderation: '🛡️',
+  Economy: '💰',
+  Music: '🎵',
+  Fun: '🎮',
+  Leveling: '📊',
+  Utility: '🔧',
+  Ticket: '🎫',
+  Welcome: '👋',
+  Giveaway: '🎉',
+  Counter: '🔢',
+  Tools: '🛠️',
+  Search: '🔍',
+  'Reaction Roles': '🎭',
+  Community: '👥',
+  Birthday: '🎂',
+  'Join To Create': '🔌',
+  Verification: '✅',
+  Config: '⚙️',
+};
+
 function customId(base, guildId, suffix = '') {
   return suffix ? `${base}:${guildId}:${suffix}` : `${base}:${guildId}`;
 }
@@ -45,11 +67,15 @@ function getCategoryStatus(category) {
   return STATUS.partial;
 }
 
+function getCategoryEmoji(category) {
+  return CATEGORY_EMOJIS[category] || '🔹';
+}
+
 function formatCommandLabel(command) {
   if (command.isSubcommand) {
-    return `\`${command.name.replace(/ /g, ' ')}\``;
+    return `/${command.name}`;
   }
-  return `\`${command.name}\``;
+  return `/${command.name}`;
 }
 
 function chunkLines(lines, maxLength = 980) {
@@ -73,15 +99,29 @@ function chunkLines(lines, maxLength = 980) {
   return chunks;
 }
 
+function addServerStats(fields, guild) {
+  const members = Number(guild?.memberCount || 0);
+  const bots = guild?.members?.cache
+    ? guild.members.cache.filter((member) => member.user?.bot).size
+    : 0;
+
+  fields.unshift({
+    name: '📊 Server Stats',
+    value: `🧑┃members-${members}  🤖┃bots-${bots}`,
+    inline: false,
+  });
+}
+
 export function buildOverviewEmbed(snapshot, guild) {
   const fullyEnabled = snapshot.categories.filter((c) => !c.categoryDisabled && c.disabledCount === 0).length;
   const partial = snapshot.categories.filter((c) => !c.categoryDisabled && c.disabledCount > 0).length;
   const disabled = snapshot.categories.filter((c) => c.categoryDisabled).length;
 
   const categoryLines = snapshot.categories.map((category) => {
-    const icon = getCategoryStatus(category);
+    const statusIcon = getCategoryStatus(category);
+    const categoryIcon = getCategoryEmoji(category.displayName);
     const subcommandNote = category.commands.some((c) => c.isSubcommand) ? ' · incl. subcommands' : '';
-    return `${icon} ${category.icon} **${category.displayName}** — ${category.enabledCount}/${category.totalCount}${subcommandNote}`;
+    return `${statusIcon} ${categoryIcon} **${category.displayName}** — ${category.enabledCount}/${category.totalCount}${subcommandNote}`;
   });
 
   const fields = [
@@ -99,6 +139,8 @@ export function buildOverviewEmbed(snapshot, guild) {
       inline: false,
     },
   ];
+
+  addServerStats(fields, guild);
 
   const chunks = chunkLines(categoryLines);
   chunks.forEach((chunk, index) => {
@@ -120,7 +162,7 @@ export function buildOverviewEmbed(snapshot, guild) {
 
   return createEmbed({
     title: '⚙️ Command Access',
-    description: `Manage slash and prefix commands for **${guild.name}**. Subcommands (e.g. \`birthday list\`) are listed separately.`,
+    description: `Manage slash and prefix commands for **${guild.name}**. Subcommands are listed separately.`,
     color: 'info',
     fields,
     footer: '🔒 commands & configwizard always stay available',
@@ -137,9 +179,10 @@ export function buildCategoryEmbed(category, guild) {
 
   const commandLines = category.commands.map((command) => {
     const enabled = category.enabledCommands.includes(command.name);
-    const icon = enabled ? STATUS.enabled : STATUS.disabled;
+    const status = enabled ? STATUS.enabled : STATUS.disabled;
     const lock = command.protected ? ' 🔒' : '';
-    return `${icon} ${formatCommandLabel(command)}${lock}`;
+    const categoryIcon = getCategoryEmoji(category.displayName);
+    return `${status} ${categoryIcon} \`${formatCommandLabel(command)}\`${lock}`;
   });
 
   const fields = [
@@ -154,6 +197,8 @@ export function buildCategoryEmbed(category, guild) {
       inline: true,
     },
   ];
+
+  addServerStats(fields, guild);
 
   const chunks = chunkLines(commandLines);
   chunks.forEach((chunk, index) => {
@@ -173,8 +218,9 @@ export function buildCategoryEmbed(category, guild) {
     ].join('\n'),
   });
 
+  const categoryIcon = getCategoryEmoji(category.displayName);
   return createEmbed({
-    title: `${category.icon} ${category.displayName}`,
+    title: `${categoryIcon} ${category.displayName}`,
     description: `Command access for **${guild.name}**.`,
     color: category.categoryDisabled ? 'error' : category.disabledCount > 0 ? 'warning' : 'success',
     fields,
@@ -220,7 +266,8 @@ export function buildCategoryComponents(guildId, category) {
     return new StringSelectMenuOptionBuilder()
       .setLabel(label)
       .setDescription((enabled ? '🟢 Enabled — click to disable' : '🔴 Disabled — click to enable').slice(0, 100))
-      .setValue(command.name);
+      .setValue(command.name)
+      .setEmoji(getCategoryEmoji(category.displayName));
   });
 
   const rows = [
