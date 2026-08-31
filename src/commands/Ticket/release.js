@@ -1,0 +1,5 @@
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { getTicketData, saveTicketData } from '../../utils/database.js';
+import { getTicketPermissionContext } from '../../utils/ticket/ticketPermissions.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
+export default { data:new SlashCommandBuilder().setName('release').setDescription('Release your claim on the current ticket').setDMPermission(false),category:'Ticket',async execute(i){await InteractionHelper.safeDefer(i,{flags:MessageFlags.Ephemeral});const ctx=await getTicketPermissionContext({client:i.client,interaction:i});if(!ctx.ticketData)return;const t=await getTicketData(i.guildId,i.channelId);if(t.claimedBy&&String(t.claimedBy)!==String(i.user.id)&&!ctx.canManageTicket){return InteractionHelper.safeEditReply(i,{content:'❌ You cannot release this ticket.'});}t.claimedBy=null;await saveTicketData(i.guildId,i.channelId,t);await InteractionHelper.safeEditReply(i,{content:'✅ Ticket claim released.'});}};
