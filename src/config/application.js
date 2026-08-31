@@ -11,7 +11,9 @@ const __dirname = path.dirname(__filename);
 const rawToken = process.env.DISCORD_TOKEN || process.env.BOT_TOKEN || process.env.TOKEN || "";
 const discordToken = rawToken.trim().replace(/^Bot\s+/i, "");
 const clientId = (process.env.CLIENT_ID || "").trim();
-const serverId = (process.env.SERVER_ID || "").trim();
+// Support both SERVER_ID and the older GUILD_ID variable so slash commands
+// are registered to the intended Discord server when either is configured.
+const serverId = (process.env.SERVER_ID || process.env.GUILD_ID || "").trim();
 
 const appConfig = {
   paths: {
@@ -29,7 +31,7 @@ const appConfig = {
     ...botConfig,
     // DISCORD_TOKEN/BOT_TOKEN/TOKEN = bot authentication token only.
     // CLIENT_ID = Discord application/bot ID only.
-    // SERVER_ID = Discord server/guild ID only.
+    // SERVER_ID/GUILD_ID = Discord server/guild ID only.
     token: discordToken,
     clientId,
     serverId,
