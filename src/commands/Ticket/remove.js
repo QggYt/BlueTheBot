@@ -1,0 +1,4 @@
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { getCurrentTicket, requireTicketManager } from './modules/extendedTicketCommands.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
+export default { data: new SlashCommandBuilder().setName('remove').setDescription('Remove a member from the current ticket').setDMPermission(false).addUserOption(o=>o.setName('member').setDescription('Member to remove').setRequired(true)), category:'Ticket', async execute(interaction){ await InteractionHelper.safeDefer(interaction,{flags:MessageFlags.Ephemeral}); const t=await getCurrentTicket(interaction); if(!t||!(await requireTicketManager(interaction,t)))return; const m=interaction.options.getMember('member'); await interaction.channel.permissionOverwrites.delete(m.id).catch(()=>{}); await InteractionHelper.safeEditReply(interaction,{content:`✅ Removed ${m} from this ticket.`}); }};
