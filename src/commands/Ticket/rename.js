@@ -1,0 +1,4 @@
+import { SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { getCurrentTicket, requireTicketManager } from './modules/extendedTicketCommands.js';
+import { InteractionHelper } from '../../utils/interactionHelper.js';
+export default { data:new SlashCommandBuilder().setName('rename').setDescription('Rename the current ticket').setDMPermission(false).addStringOption(o=>o.setName('name').setDescription('New channel name').setRequired(true)),category:'Ticket',async execute(i){await InteractionHelper.safeDefer(i,{flags:MessageFlags.Ephemeral});const t=await getCurrentTicket(i);if(!t||!(await requireTicketManager(i,t)))return;const name=i.options.getString('name').replace(/[^a-zA-Z0-9-_]/g,'-').slice(0,90);await i.channel.setName(name);await InteractionHelper.safeEditReply(i,{content:`✅ Ticket renamed to **${name}**.`});}};
