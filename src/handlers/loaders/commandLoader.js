@@ -94,13 +94,14 @@ function validateCommands(commands) {
 
 export async function registerCommands(client, options = {}) {
     // CLIENT_ID = Discord application/bot ID only.
-    // SERVER_ID = Discord server (guild) ID only.
+    // SERVER_ID/GUILD_ID = Discord server/guild ID only.
     const clientId = String(options.clientId || client.user?.id || botConfig.clientId || '').trim();
-    const serverId = String(options.serverId || botConfig.serverId || process.env.SERVER_ID || '').trim();
+    const configuredServerId = String(options.serverId || botConfig.serverId || process.env.SERVER_ID || process.env.GUILD_ID || '').trim();
+    const serverId = configuredServerId || client.guilds?.cache?.first()?.id || '';
 
     if (!clientId) throw new Error('CLIENT_ID (Discord application/bot ID) is required');
     if (!/^\d{17,20}$/.test(clientId)) throw new Error('CLIENT_ID must be the numeric Discord application/bot ID, not the server ID or bot token');
-    if (serverId && !/^\d{17,20}$/.test(serverId)) throw new Error('SERVER_ID must be the numeric Discord server/guild ID, not the bot/application ID');
+    if (serverId && !/^\d{17,20}$/.test(serverId)) throw new Error('SERVER_ID/GUILD_ID must be the numeric Discord server/guild ID, not the bot/application ID');
     if (!client.rest) throw new Error('Discord REST client is not available');
 
     const { commands, totalSubcommands } = collectCommandPayloads(client);
