@@ -5,10 +5,11 @@ import {
     ButtonStyle,
 } from "discord.js";
 import { InteractionHelper } from '../../utils/interactionHelper.js';
-import { createEmbed } from "../../utils/embeds.js";
+import { createEmbed } from '../../utils/embeds.js';
+import { logger } from '../../utils/logger.js';
 import {
     createSelectMenu,
-} from "../../utils/components.js";
+} from '../../utils/components.js';
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -44,12 +45,12 @@ const CATEGORY_ICONS = {
 
 function formatCategoryName(rawCategory) {
     return rawCategory
-        .replace(/_/g, '')
+        .replace(/_/g, ' ')
         .replace(/([a-z])([A-Z])/g, '$1 $2')
         .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-export async function createInitialHelpMenu(client) {
+export async function createInitialHelpMenu(client, guild = null) {
     const commandsPath = path.join(__dirname, "../../commands");
     const categoryDirs = (
         await fs.readdir(commandsPath, { withFileTypes: true })
@@ -76,12 +77,21 @@ export async function createInitialHelpMenu(client) {
     ];
 
     const botName = client?.user?.username || "Bot";
+    const memberCount = guild?.memberCount ?? 0;
+    const botCount = guild?.members?.cache?.filter((member) => member.user.bot).size ?? 0;
+    const humanCount = Math.max(0, memberCount - botCount);
+
     const embed = createEmbed({
         title: `📖 ${botName} Help`,
         description: 'Set up your server, pick what to enable, then browse commands below.',
         color: 'primary',
         thumbnail: client.user?.displayAvatarURL?.({ size: 1024 }),
         fields: [
+            {
+                name: '📊 Server Stats',
+                value: `🧑┃members-${humanCount}  🤖┃bots-${botCount}`,
+                inline: false,
+            },
             {
                 name: '🚀 Getting Started',
                 value: [
@@ -103,8 +113,8 @@ export async function createInitialHelpMenu(client) {
         ],
     });
 
-    embed.setFooter({ 
-        text: "Made with ❤️" 
+    embed.setFooter({
+        text: "Made with ❤️"
     });
     embed.setTimestamp();
 
@@ -142,11 +152,9 @@ export default {
         .setDescription("Displays the help menu with all available commands"),
 
     async execute(interaction, guildConfig, client) {
-        
-        const { MessageFlags } = await import('discord.js');
         await InteractionHelper.safeDefer(interaction);
-        
-        const { embeds, components } = await createInitialHelpMenu(client);
+
+        const { embeds, components } = await createInitialHelpMenu(client, interaction.guild);
 
         await InteractionHelper.safeEditReply(interaction, {
             embeds,
