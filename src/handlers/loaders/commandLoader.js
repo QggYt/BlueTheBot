@@ -15,10 +15,16 @@ const COMMAND_FAMILIES = {
         description: 'Manage music playback, queue, and voice controls',
         members: ['join', 'nowplaying', 'play', 'queue'],
     },
+    fun: {
+        category: 'Fun',
+        description: 'Fun games, conversation tools, and entertainment commands',
+        members: ['chatreviver', 'count', 'delete', 'fight', 'flip', 'list', 'roll', 'setup', 'fun-topic'],
+        memberNames: { 'fun-topic': 'topic' },
+    },
     ticket: {
         category: 'Ticket',
         description: 'Manage the server ticket system',
-        members: ['add', 'claim', 'close', 'force-close', 'move', 'new', 'priority', 'release', 'remove', 'rename', 'tag', 'ticketfeedback', 'tickets'],
+        members: ['add', 'claim', 'close', 'force-close', 'move', 'new', 'priority', 'release', 'remove', 'rename', 'tag', 'ticketfeedback', 'tickets', 'topic', 'transcript'],
     },
     mod: {
         category: 'Moderation',
@@ -96,25 +102,14 @@ function asSubcommand(commandJson, name = commandJson.name) {
     const options = commandJson.options || [];
     const hasNestedCommands = options.some(option => option.type === 1 || option.type === 2);
     if (hasNestedCommands) {
-        return {
-            type: 2,
-            name,
-            description: commandJson.description || `Manage ${name}`,
-            options,
-        };
+        return { type: 2, name, description: commandJson.description || `Manage ${name}`, options };
     }
-    return {
-        type: 1,
-        name,
-        description: commandJson.description || `Run ${name}`,
-        options,
-    };
+    return { type: 1, name, description: commandJson.description || `Run ${name}`, options };
 }
 
 function addFamilyMember(memberName, command, family, payloadOptions, dispatchMap) {
     const json = commandToJson(command);
     if (!json) return;
-
     const subcommandName = family.memberNames?.[memberName] || memberName;
     const options = json.options || [];
     const hasNestedCommands = options.some(option => option.type === 1 || option.type === 2);
@@ -122,9 +117,8 @@ function addFamilyMember(memberName, command, family, payloadOptions, dispatchMa
     if (hasNestedCommands) {
         payloadOptions.push(asSubcommand(json, subcommandName));
         for (const option of options) {
-            if (option.type === 1) {
-                dispatchMap.set(`${subcommandName}:${option.name}`, command);
-            } else if (option.type === 2) {
+            if (option.type === 1) dispatchMap.set(`${subcommandName}:${option.name}`, command);
+            else if (option.type === 2) {
                 for (const subOption of option.options || []) {
                     if (subOption.type === 1) dispatchMap.set(`${subcommandName}:${option.name}:${subOption.name}`, command);
                 }
@@ -163,20 +157,10 @@ function consolidateCommandFamilies(client) {
                         }
                     }
                 } else if (family.rootSubcommand) {
-                    payloadOptions.push({
-                        type: 1,
-                        name: family.rootSubcommand,
-                        description: rootJson.description || `Run ${family.rootSubcommand}`,
-                        options: rootOptions,
-                    });
+                    payloadOptions.push({ type: 1, name: family.rootSubcommand, description: rootJson.description || `Run ${family.rootSubcommand}`, options: rootOptions });
                     dispatchMap.set(family.rootSubcommand, root);
                 } else {
-                    payloadOptions.push({
-                        type: 1,
-                        name: 'default',
-                        description: rootJson.description || `Run ${familyName}`,
-                        options: rootOptions,
-                    });
+                    payloadOptions.push({ type: 1, name: 'default', description: rootJson.description || `Run ${familyName}`, options: rootOptions });
                     dispatchMap.set('default', root);
                 }
             }
@@ -205,12 +189,7 @@ function consolidateCommandFamilies(client) {
             data: {
                 name: familyName,
                 description: family.description,
-                toJSON: () => ({
-                    name: familyName,
-                    description: family.description,
-                    options: payloadOptions,
-                    type: 1,
-                }),
+                toJSON: () => ({ name: familyName, description: family.description, options: payloadOptions, type: 1 }),
             },
             async execute(interaction, config, botClient) {
                 const group = interaction.options.getSubcommandGroup(false);
@@ -306,7 +285,6 @@ function validateCommands(commands) {
 export async function registerCommands(client, options = {}) {
     const clientId = String(options.clientId || client.user?.id || botConfig.clientId || '').trim();
     const configuredServerId = String(options.serverId || botConfig.serverId || process.env.SERVER_ID || process.env.GUILD_ID || '').trim();
-
     if (!clientId) throw new Error('CLIENT_ID (Discord application/bot ID) is required');
     if (!/^\d{17,20}$/.test(clientId)) throw new Error('CLIENT_ID must be the numeric Discord application/bot ID, not the server ID or bot token');
     if (!client.rest) throw new Error('Discord REST client is not available');
@@ -314,10 +292,7 @@ export async function registerCommands(client, options = {}) {
     const { commands, totalSubcommands } = collectCommandPayloads(client);
     validateCommands(commands);
     if (commands.length > MAX_COMMANDS) throw new Error(`Discord allows ${MAX_COMMANDS} top-level commands; found ${commands.length}`);
-
-    if (configuredServerId && !/^\d{17,20}$/.test(configuredServerId)) {
-        throw new Error('SERVER_ID/GUILD_ID must be the numeric Discord server/guild ID, not the bot/application ID');
-    }
+    if (configuredServerId && !/^\d{17,20}$/.test(configuredServerId)) throw new Error('SERVER_ID/GUILD_ID must be the numeric Discord server/guild ID, not the bot/application ID');
 
     logger.info(`Prepared ${commands.length} slash commands (${totalSubcommands} subcommands) for application ${clientId}`);
 
