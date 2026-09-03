@@ -1,0 +1,33 @@
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.js';
+
+const embed = (title, description) => new EmbedBuilder().setTitle(title).setDescription(description).setColor('#3498db');
+
+const avatar = new SlashCommandBuilder().setName('dynoavatar').setDescription('Show a member avatar').addUserOption(o => o.setName('user').setDescription('Member').setRequired(false));
+const info = new SlashCommandBuilder().setName('info').setDescription('Show information about BlueTheBot');
+const membercount = new SlashCommandBuilder().setName('membercount').setDescription('Show server member counts');
+const server = new SlashCommandBuilder().setName('server').setDescription('Show detailed server information');
+const whois = new SlashCommandBuilder().setName('whois').setDescription('Show information about a member').addUserOption(o => o.setName('user').setDescription('Member').setRequired(false));
+const roleinfo = new SlashCommandBuilder().setName('roleinfo').setDescription('Show information about a role').addRoleOption(o => o.setName('role').setDescription('Role').setRequired(true));
+const roles = new SlashCommandBuilder().setName('roles').setDescription('List server roles');
+const color = new SlashCommandBuilder().setName('color').setDescription('Display a hexadecimal color').addStringOption(o => o.setName('hex').setDescription('Hex color such as #3498db').setRequired(true));
+const randomcolor = new SlashCommandBuilder().setName('randomcolor').setDescription('Generate a random color');
+const discrim = new SlashCommandBuilder().setName('discrim').setDescription('Show a user's current discriminator').addUserOption(o => o.setName('user').setDescription('User').setRequired(false));
+const distance = new SlashCommandBuilder().setName('distance').setDescription('Calculate distance between two points').addNumberOption(o => o.setName('x1').setDescription('First X').setRequired(true)).addNumberOption(o => o.setName('y1').setDescription('First Y').setRequired(true)).addNumberOption(o => o.setName('x2').setDescription('Second X').setRequired(true)).addNumberOption(o => o.setName('y2').setDescription('Second Y').setRequired(true));
+const emotes = new SlashCommandBuilder().setName('emotes').setDescription('List custom server emojis');
+const commandstats = new SlashCommandBuilder().setName('commandstats').setDescription('Show BlueTheBot command statistics');
+
+export default [
+  { data: avatar, category: 'Utility', async execute(i) { const u = i.options.getUser('user') || i.user; await i.reply({ embeds: [embed(`${u.username}'s Avatar`, '').setImage(u.displayAvatarURL({ size: 1024 }))] }); } },
+  { data: info, category: 'Info', async execute(i) { await i.reply({ embeds: [embed('BlueTheBot', 'BlueTheBot is a multi-purpose Discord bot with moderation, leveling, tickets, economy, music, giveaways, utilities and server tools.')] }); } },
+  { data: membercount, category: 'Info', async execute(i) { const g = i.guild; await i.reply({ embeds: [embed('Member Count', `Total: **${g.memberCount}**\nHumans: **${g.members.cache.filter(m => !m.user.bot).size}**\nBots: **${g.members.cache.filter(m => m.user.bot).size}**`)] }); } },
+  { data: server, category: 'Info', async execute(i) { const g = i.guild; await i.reply({ embeds: [embed(g.name, `Owner: <@${g.ownerId}>\nMembers: **${g.memberCount}**\nChannels: **${g.channels.cache.size}**\nRoles: **${g.roles.cache.size}**\nCreated: <t:${Math.floor(g.createdTimestamp / 1000)}:F>`).setThumbnail(g.iconURL({ size: 256 }))] }); } },
+  { data: whois, category: 'Info', async execute(i) { const u = i.options.getUser('user') || i.user; const m = await i.guild.members.fetch(u.id).catch(() => null); await i.reply({ embeds: [embed(`User Info — ${u.username}`, `ID: **${u.id}**\nMention: ${u}\nBot: **${u.bot ? 'Yes' : 'No'}**\nJoined server: ${m?.joinedTimestamp ? `<t:${Math.floor(m.joinedTimestamp / 1000)}:F>` : 'Unknown'}\nAccount created: <t:${Math.floor(u.createdTimestamp / 1000)}:F>`).setThumbnail(u.displayAvatarURL({ size: 256 }))] }); } },
+  { data: roleinfo, category: 'Roles', async execute(i) { const r = i.options.getRole('role'); await i.reply({ embeds: [embed(`Role Info — ${r.name}`, `ID: **${r.id}**\nPosition: **${r.position}**\nMembers: **${r.members.size}**\nMentionable: **${r.mentionable ? 'Yes' : 'No'}**\nManaged: **${r.managed ? 'Yes' : 'No'}**`)] }); } },
+  { data: roles, category: 'Roles', async execute(i) { const list = i.guild.roles.cache.sort((a,b) => b.position-a.position).map(r => `${r.toString()} — ${r.id}`).slice(0, 50).join('\n'); await i.reply({ embeds: [embed('Server Roles', list || 'No roles found.')] }); } },
+  { data: color, category: 'Misc', async execute(i) { let h = i.options.getString('hex').trim(); if (!h.startsWith('#')) h = `#${h}`; if (!/^#[0-9a-fA-F]{6}$/.test(h)) return i.reply({ content: 'Use a valid 6-digit hex color, for example `#3498db`.', ephemeral: true }); await i.reply({ embeds: [embed('Color', `Hex: **${h.toUpperCase()}**`).setColor(h)] }); } },
+  { data: randomcolor, category: 'Misc', async execute(i) { const h = `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`; await i.reply({ embeds: [embed('Random Color', `Generated: **${h.toUpperCase()}**`).setColor(h)] }); } },
+  { data: discrim, category: 'Misc', async execute(i) { const u = i.options.getUser('user') || i.user; await i.reply({ embeds: [embed('User Discriminator', `${u} currently uses Discord's modern username system.\nUsername: **${u.username}**\nID: **${u.id}**`)] }); } },
+  { data: distance, category: 'Misc', async execute(i) { const x1=i.options.getNumber('x1'), y1=i.options.getNumber('y1'), x2=i.options.getNumber('x2'), y2=i.options.getNumber('y2'); const d=Math.hypot(x2-x1,y2-y1); await i.reply({ embeds: [embed('Distance', `Distance: **${d.toFixed(4)}**`)] }); } },
+  { data: emotes, category: 'Misc', async execute(i) { const list = i.guild.emojis.cache.map(e => `${e} — \`${e.name}\``).join('\n'); await i.reply({ embeds: [embed('Server Emotes', list || 'This server has no custom emotes.')] }); } },
+  { data: commandstats, category: 'Admin', defaultMemberPermissions: PermissionFlagsBits.ManageGuild, async execute(i, config, client) { const total = client.commands?.size || 0; const categories = {}; for (const c of client.commands.values()) categories[c.category || 'Other'] = (categories[c.category || 'Other'] || 0) + 1; const lines = Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`**${k}:** ${v}`).join('\n'); await i.reply({ embeds: [embed('Command Statistics', `Loaded commands: **${total}**\n\n${lines}`)] }); } },
+];
