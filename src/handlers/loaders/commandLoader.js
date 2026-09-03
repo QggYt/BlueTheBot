@@ -9,8 +9,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 
-// These families combine related top-level commands into Discord subcommands.
-// Existing command implementations are kept and called unchanged.
 const COMMAND_FAMILIES = {
     music: {
         category: 'Music',
@@ -32,6 +30,7 @@ const COMMAND_FAMILIES = {
         description: 'Server, user, role, and utility information',
         members: ['dynoavatar', 'membercount', 'server', 'whois', 'roleinfo', 'roles', 'color', 'randomcolor', 'discrim', 'distance', 'emotes', 'commandstats'],
         rootMember: 'info',
+        rootSubcommand: 'about',
     },
 };
 
@@ -83,7 +82,7 @@ function asSubcommand(commandJson, name = commandJson.name) {
     };
 }
 
-function addFamilyMember(family, memberName, command, payloadOptions, dispatchMap) {
+function addFamilyMember(memberName, command, payloadOptions, dispatchMap) {
     const json = commandToJson(command);
     if (!json) return;
 
@@ -91,8 +90,7 @@ function addFamilyMember(family, memberName, command, payloadOptions, dispatchMa
     const hasNestedCommands = options.some(option => option.type === 1 || option.type === 2);
 
     if (hasNestedCommands) {
-        const group = asSubcommand(commandToJson(command), memberName);
-        payloadOptions.push(group);
+        payloadOptions.push(asSubcommand(json, memberName));
         for (const option of options) {
             if (option.type === 1) {
                 dispatchMap.set(`${memberName}:${option.name}`, command);
@@ -110,7 +108,6 @@ function addFamilyMember(family, memberName, command, payloadOptions, dispatchMa
 
 function consolidateCommandFamilies(client) {
     const originalCommands = new Map(client.commands);
-    const replacements = [];
     let consolidated = 0;
 
     for (const [familyName, family] of Object.entries(COMMAND_FAMILIES)) {
@@ -122,16 +119,27 @@ function consolidateCommandFamilies(client) {
         if (root) {
             const rootJson = commandToJson(root);
             if (rootJson) {
-                for (const option of rootJson.options || []) {
-                    if (option.type === 1) {
-                        payloadOptions.push(option);
-                        dispatchMap.set(option.name, root);
-                    } else if (option.type === 2) {
-                        payloadOptions.push(option);
-                        for (const subOption of option.options || []) {
-                            if (subOption.type === 1) dispatchMap.set(`${option.name}:${subOption.name}`, root);
+                const rootOptions = rootJson.options || [];
+                if (rootOptions.some(option => option.type === 1 || option.type === 2)) {
+                    for (const option of rootOptions) {
+                        if (option.type === 1) {
+                            payloadOptions.push(option);
+                            dispatchMap.set(option.name, root);
+                        } else if (option.type === 2) {
+                            payloadOptions.push(option);
+                            for (const subOption of option.options || []) {
+                                if (subOption.type === 1) dispatchMap.set(`${option.name}:${subOption.name}`, root);
+                            }
                         }
                     }
+                } else if (family.rootSubcommand) {
+                    payloadOptions.push({
+                        type: 1,
+                        name: family.rootSubcommand,
+                        description: rootJson.description || `Run ${family.rootSubcommand}`,
+                        options: rootOptions,
+                    });
+                    dispatchMap.set(family.rootSubcommand, root);
                 }
             }
             members.push(root.data.name);
@@ -141,7 +149,7 @@ function consolidateCommandFamilies(client) {
             if (memberName === family.rootMember) continue;
             const command = originalCommands.get(memberName);
             if (!command) continue;
-            addFamilyMember(family, memberName, command, payloadOptions, dispatchMap);
+            addFamilyMember(memberName, command, payloadOptions, dispatchMap);
             members.push(memberName);
         }
 
@@ -169,8 +177,8 @@ function consolidateCommandFamilies(client) {
             async execute(interaction, config, botClient) {
                 const group = interaction.options.getSubcommandGroup(false);
                 const sub = interaction.options.getSubcommand(false);
-                const key = group ? `${familyName === group ? '' : group}:${sub}` : sub;
-                const command = dispatchMap.get(key) || dispatchMap.get(sub) || (root && dispatchMap.get(sub));
+                const key = group ? `${group}:${sub}` : sub;
+                const command = dispatchMap.get(key);
                 if (!command) {
                     await interaction.reply({ content: `Unknown /${familyName} subcommand.`, ephemeral: true }).catch(() => {});
                     return;
@@ -181,19 +189,12 @@ function consolidateCommandFamilies(client) {
 
         for (const memberName of members) client.commands.delete(memberName);
         client.commands.set(familyName, familyCommand);
-        replacements.push({ familyName, removed: members.length, kept: familyName, members });
         consolidated += Math.max(0, members.length - 1);
+        logger.info(`Consolidated /${familyName}: ${members.join(', ')}`);
     }
 
-    // Root family names may overlap with an original command that was not part of the family.
-    // The family replacement is intentional and wins.
-    if (replacements.length) {
-        logger.info(`Consolidated ${consolidated} top-level commands into ${replacements.length} command families.`);
-        for (const replacement of replacements) {
-            logger.info(`/${replacement.familyName}: ${replacement.members.join(', ')}`);
-        }
-    }
-    return replacements;
+    logger.info(`Consolidated ${consolidated} top-level commands into command families.`);
+    return consolidated;
 }
 
 export async function loadCommands(client) {
@@ -310,7 +311,7 @@ export async function registerCommands(client, options = {}) {
 
 export async function reloadCommand(client, commandName) {
     const command = client.commands.get(commandName);
-    if (!command) return { success: false, message: `Command "${commandName}" not found` };
+    if (!command) return { success: false, message: `Command \"${commandName}\" not found` };
     try {
         const commandPath = path.resolve(command.filePath);
         const moduleUrl = pathToFileURL(commandPath);
@@ -318,11 +319,11 @@ export async function reloadCommand(client, commandName) {
         const exported = (await import(moduleUrl.href)).default;
         const commands = Array.isArray(exported) ? exported : [exported];
         const replacement = commands.find(c => c?.data?.name === commandName);
-        if (!replacement) return { success: false, message: `Command "${commandName}" is not exported by its file` };
+        if (!replacement) return { success: false, message: `Command \"${commandName}\" is not exported by its file` };
         client.commands.set(commandName, replacement);
-        return { success: true, message: `Successfully reloaded command "${commandName}"` };
+        return { success: true, message: `Successfully reloaded command \"${commandName}\"` };
     } catch (error) {
-        logger.error(`Error reloading command "${commandName}":`, error);
+        logger.error(`Error reloading command \"${commandName}\":`, error);
         return { success: false, message: `Error reloading command: ${error.message}` };
     }
 }
