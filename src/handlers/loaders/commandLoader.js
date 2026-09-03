@@ -9,6 +9,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 
+// Keep implementations in their original files, but expose related features
+// through a single Discord slash-command root. This prevents duplicate roots
+// while preserving every implementation as a subcommand.
 const COMMAND_FAMILIES = {
     music: {
         category: 'Music',
@@ -27,10 +30,37 @@ const COMMAND_FAMILIES = {
     },
     info: {
         category: 'Info',
-        description: 'Server, user, role, and utility information',
-        members: ['dynoavatar', 'membercount', 'server', 'whois', 'roleinfo', 'roles', 'color', 'randomcolor', 'discrim', 'distance', 'emotes', 'commandstats'],
+        description: 'Server, user, role, and general information tools',
+        members: [
+            'dynoavatar', 'membercount', 'server', 'serverinfo', 'serverstats',
+            'whois', 'userinfo', 'avatar', 'roleinfo', 'roles', 'color',
+            'randomcolor', 'discrim', 'distance', 'emotes', 'commandstats',
+        ],
         rootMember: 'info',
         rootSubcommand: 'about',
+    },
+    giveaway: {
+        category: 'Giveaway',
+        description: 'Create, manage, end, and reroll giveaways',
+        members: ['gcreate', 'gdelete', 'gend', 'greroll'],
+    },
+    level: {
+        category: 'Leveling',
+        description: 'Manage leveling, ranks, rewards, and leaderboards',
+        members: ['leaderboard', 'leveladd', 'levelremove', 'levelrole', 'levelset', 'rank'],
+        rootMember: 'level',
+    },
+    verification: {
+        category: 'Verification',
+        description: 'Configure and manage member verification',
+        members: ['autoverify', 'verify'],
+        rootMember: 'verification',
+    },
+    tts: {
+        category: 'Community',
+        description: 'Text-to-speech voice controls',
+        members: ['tts-stop'],
+        rootMember: 'tts',
     },
 };
 
@@ -140,6 +170,16 @@ function consolidateCommandFamilies(client) {
                         options: rootOptions,
                     });
                     dispatchMap.set(family.rootSubcommand, root);
+                } else {
+                    // A plain command cannot be a family root without changing
+                    // its original invocation, so expose it as the first subcommand.
+                    payloadOptions.push({
+                        type: 1,
+                        name: 'default',
+                        description: rootJson.description || `Run ${familyName}`,
+                        options: rootOptions,
+                    });
+                    dispatchMap.set('default', root);
                 }
             }
             members.push(root.data.name);
@@ -305,7 +345,7 @@ export async function registerCommands(client, options = {}) {
         const route = `/applications/${clientId}/guilds/${guildId}/commands`;
         logger.info(`Registering slash commands to guild ${guildId}`);
         await client.rest.put(route, { body: commands });
-        logger.info(`Successfully registered slash commands to guild ${guildId}`);
+        logger.info(`Successfully registered ${commands.length} slash commands to guild ${guildId}`);
     }
 }
 
