@@ -172,9 +172,9 @@ function collectCommandPayloads(client) {
     let totalSubcommands = 0;
     for (const command of client.commands.values()) {
         if (!command.data || typeof command.data.toJSON !== 'function') continue;
-        if (names.has(command.data.name)) continue;
-        names.add(command.data.name);
         const json = command.data.toJSON();
+        if (!json?.name || names.has(json.name)) continue;
+        names.add(json.name);
         commands.push(json);
         totalSubcommands += getSubcommandInfo(json).length;
     }
@@ -183,8 +183,11 @@ function collectCommandPayloads(client) {
 
 function validateCommands(commands) {
     const errors = [];
+    const seenNames = new Set();
     for (const cmd of commands) {
         if (!cmd.name || cmd.name.length > 32) errors.push(`Invalid command name: ${cmd.name}`);
+        if (seenNames.has(cmd.name)) errors.push(`Duplicate top-level command: ${cmd.name}`);
+        seenNames.add(cmd.name);
         if (cmd.description && cmd.description.length > 100) errors.push(`${cmd.name}: description over 100 characters`);
         for (const option of cmd.options || []) {
             if (option.name?.length > 32) errors.push(`${cmd.name}.${option.name}: invalid option name`);
@@ -208,13 +211,20 @@ export async function registerCommands(client, options = {}) {
 
     logger.info(`Prepared ${commands.length} slash commands (${totalSubcommands} subcommands) for application ${clientId}`);
 
-    if (configuredServerId) {
-        // Use ONE registration scope. Old global commands are explicitly removed so
-        // commands previously registered globally cannot appear as duplicates.
-        const globalRoute = `/applications/${clientId}/commands`;
-        logger.info('Clearing old global slash commands before guild registration...');
-        await client.rest.put(globalRoute, { body: [] });
+    // Always wipe every command scope first. This removes commands left behind by
+    // previous versions that used a different scope, including old guild-only tests.
+    const globalRoute = `/applications/${clientId}/commands`;
+    logger.info('Clearing global slash commands...');
+    await client.rest.put(globalRoute, { body: [] });
 
+    const guildIds = [...(client.guilds?.cache?.keys?.() || [])];
+    for (const guildId of guildIds) {
+        const guildRoute = `/applications/${clientId}/guilds/${guildId}/commands`;
+        await client.rest.put(guildRoute, { body: [] });
+        logger.info(`Cleared guild slash commands from ${guildId}`);
+    }
+
+    if (configuredServerId) {
         const route = `/applications/${clientId}/guilds/${configuredServerId}/commands`;
         logger.info(`Registering ${commands.length} slash commands to configured server ${configuredServerId}`);
         await client.rest.put(route, { body: commands });
@@ -222,19 +232,8 @@ export async function registerCommands(client, options = {}) {
         return;
     }
 
-    // No guild configured: use global registration only. Clear cached guild
-    // registrations so a previous development/test registration cannot duplicate
-    // every command in Discord's command picker.
-    const guildIds = [...(client.guilds?.cache?.keys?.() || [])];
-    for (const guildId of guildIds) {
-        const guildRoute = `/applications/${clientId}/guilds/${guildId}/commands`;
-        await client.rest.put(guildRoute, { body: [] });
-        logger.info(`Cleared old guild-specific commands from ${guildId}`);
-    }
-
-    const route = `/applications/${clientId}/commands`;
-    logger.info(`Registering ${commands.length} commands globally`);
-    await client.rest.put(route, { body: commands });
+    logger.info(`Registering ${commands.length} slash commands globally`);
+    await client.rest.put(globalRoute, { body: commands });
     logger.info(`Successfully registered ${commands.length} global slash commands`);
 }
 
