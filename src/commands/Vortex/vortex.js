@@ -6,12 +6,12 @@ function getApiBase(client) {
   return process.env.VORTEX_API_URL || `http://127.0.0.1:${port}/v1`;
 }
 
-async function apiRequest(client, method, path, data = undefined) {
+async function apiRequest(client, method, path, data = undefined, actorId = '') {
   const response = await axios({
     method,
     url: `${getApiBase(client)}${path}`,
     data,
-    headers: { 'X-Vortex-Actor-Id': client.user?.id || '' },
+    headers: { 'X-Vortex-Actor-Id': actorId || '' },
     timeout: 8_000,
     validateStatus: () => true,
   });
@@ -66,6 +66,7 @@ export default {
 
   async execute(interaction, _config, client) {
     const subcommand = interaction.options.getSubcommand();
+    const actorId = interaction.user.id;
 
     try {
       if (subcommand === 'health') {
@@ -97,7 +98,7 @@ export default {
 
       if (subcommand === 'like') {
         const liked = interaction.options.getBoolean('liked', true);
-        const result = await apiRequest(client, 'POST', `/likes/${target}`, { liked });
+        const result = await apiRequest(client, 'POST', `/likes/${target}`, { liked }, actorId);
         return interaction.reply({
           content: `${liked ? '❤️ Liked' : '💔 Unliked'} Vortex target **${target}**. Total likes: **${result.count ?? 0}**.`,
         });
@@ -105,7 +106,7 @@ export default {
 
       const voteValue = interaction.options.getString('vote', true);
       const vote = voteValue === 'null' ? null : voteValue;
-      const result = await apiRequest(client, 'POST', `/ratings/${target}`, { vote });
+      await apiRequest(client, 'POST', `/ratings/${target}`, { vote }, actorId);
       return interaction.reply({
         content: vote
           ? `${vote === 'up' ? '👍' : '👎'} Rated Vortex target **${target}** as **${vote}**.`
