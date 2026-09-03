@@ -10,15 +10,9 @@ export const helpBackButton = {
     name: BACK_BUTTON_ID,
     async execute(interaction, client) {
         try {
-            if (!interaction.deferred && !interaction.replied) {
-                await interaction.deferUpdate();
-            }
-
+            if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
             const { embeds, components } = await createInitialHelpMenu(client, interaction.guild);
-            await interaction.editReply({
-                embeds,
-                components,
-            });
+            await interaction.editReply({ embeds, components });
         } catch (error) {
             if (error?.code === 40060 || error?.code === 10062) {
                 logger.warn('Help back button interaction already acknowledged or expired.', {
@@ -40,10 +34,9 @@ export const helpBugReportButton = {
         const githubButton = new ButtonBuilder()
             .setLabel('🐛 Report Bug on GitHub')
             .setStyle(ButtonStyle.Link)
-            .setURL('https://github.com/codebymitch/TitanBot/issues');
+            .setURL('https://github.com/QggYt/BlueTheBot/issues');
 
         const bugRow = new ActionRowBuilder().addComponents(githubButton);
-
         const bugReportEmbed = createEmbed({
             title: '🐛 Bug Report',
             description: 'Found a bug? Please report it on our GitHub Issues page!\n\n' +
@@ -55,16 +48,11 @@ export const helpBugReportButton = {
                 'This helps us fix issues faster and more effectively!',
             color: 'error'
         });
-        bugReportEmbed.setFooter({
-            text: 'TitanBot Bug Reporting System',
-            iconURL: client.user.displayAvatarURL()
-        });
+        bugReportEmbed.setFooter({ text: 'BlueTheBot Bug Reporting System', iconURL: client.user.displayAvatarURL() });
         bugReportEmbed.setTimestamp();
 
-        await interaction.reply({
-            embeds: [bugReportEmbed],
-            components: [bugRow],
-            flags: MessageFlags.Ephemeral
-        });
+        await interaction.reply({ embeds: [bugReportEmbed], components: [bugRow], flags: MessageFlags.Ephemeral });
     },
 };
+
+export default [helpBackButton, helpBugReportButton];
