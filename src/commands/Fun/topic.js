@@ -27,7 +27,7 @@ const TOPICS = [
 
 export default {
   data: new SlashCommandBuilder()
-    .setName('topic')
+    .setName('fun-topic')
     .setDescription('Get a random conversation starter.'),
   category: 'Fun',
 
