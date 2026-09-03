@@ -25,8 +25,8 @@ const COMMAND_FAMILIES = {
     },
     mod: {
         category: 'Moderation',
-        description: 'Moderation and server safety tools',
-        members: ['ban', 'cases', 'dm', 'kick', 'lock', 'massban', 'masskick', 'purge', 'say', 'timeout', 'unban', 'unlock', 'untimeout', 'usernotes'],
+        description: 'Moderation, warnings, and server safety tools',
+        members: ['ban', 'cases', 'dm', 'kick', 'lock', 'massban', 'masskick', 'purge', 'say', 'timeout', 'unban', 'unlock', 'untimeout', 'usernotes', 'warn', 'warnings'],
     },
     info: {
         category: 'Info',
@@ -171,8 +171,6 @@ function consolidateCommandFamilies(client) {
                     });
                     dispatchMap.set(family.rootSubcommand, root);
                 } else {
-                    // A plain command cannot be a family root without changing
-                    // its original invocation, so expose it as the first subcommand.
                     payloadOptions.push({
                         type: 1,
                         name: 'default',
