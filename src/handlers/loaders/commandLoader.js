@@ -10,63 +10,15 @@ const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 
 const COMMAND_FAMILIES = {
-    music: {
-        category: 'Music',
-        description: 'Manage music playback, queue, and voice controls',
-        members: ['join', 'nowplaying', 'play', 'queue'],
-    },
-    fun: {
-        category: 'Fun',
-        description: 'Fun games, conversation tools, and entertainment commands',
-        members: ['chatreviver', 'count', 'delete', 'fight', 'flip', 'list', 'roll', 'setup', 'fun-topic'],
-        memberNames: { 'fun-topic': 'topic' },
-    },
-    ticket: {
-        category: 'Ticket',
-        description: 'Manage the server ticket system',
-        members: ['add', 'claim', 'close', 'force-close', 'move', 'new', 'priority', 'release', 'remove', 'rename', 'tag', 'ticketfeedback', 'tickets', 'topic', 'transcript'],
-    },
-    mod: {
-        category: 'Moderation',
-        description: 'Moderation, warnings, and server safety tools',
-        members: ['ban', 'cases', 'dm', 'kick', 'lock', 'massban', 'masskick', 'purge', 'say', 'timeout', 'unban', 'unlock', 'untimeout', 'usernotes', 'warn', 'warnings'],
-    },
-    info: {
-        category: 'Info',
-        description: 'Server, user, role, and general information tools',
-        members: [
-            'dynoavatar', 'membercount', 'server', 'serverinfo', 'serverstats',
-            'whois', 'userinfo', 'avatar', 'roleinfo', 'roles', 'color',
-            'randomcolor', 'discrim', 'distance', 'emotes', 'commandstats',
-        ],
-        rootMember: 'info',
-        rootSubcommand: 'about',
-    },
-    giveaway: {
-        category: 'Giveaway',
-        description: 'Create, manage, end, and reroll giveaways',
-        members: ['gcreate', 'gdelete', 'gend', 'greroll'],
-    },
-    level: {
-        category: 'Leveling',
-        description: 'Manage leveling, ranks, rewards, and leaderboards',
-        members: ['leaderboard', 'leveladd', 'levelremove', 'levelrole', 'levelset', 'rank'],
-        rootMember: 'level',
-    },
-    verification: {
-        category: 'Verification',
-        description: 'Configure and manage member verification',
-        members: ['autoverify', 'verify'],
-        rootMember: 'verification',
-    },
-    tts: {
-        category: 'Community',
-        description: 'Text-to-speech voice controls',
-        members: ['tts-stop'],
-        rootMember: 'tts',
-        rootSubcommand: 'speak',
-        memberNames: { 'tts-stop': 'stop' },
-    },
+    music: { category: 'Music', description: 'Manage music playback, queue, and voice controls', members: ['join', 'nowplaying', 'play', 'queue'] },
+    fun: { category: 'Fun', description: 'Fun games, conversation tools, and entertainment commands', members: ['chatreviver', 'count', 'delete', 'fight', 'flip', 'list', 'roll', 'setup', 'fun-topic'], memberNames: { 'fun-topic': 'topic' } },
+    ticket: { category: 'Ticket', description: 'Manage the server ticket system', members: ['add', 'claim', 'close', 'force-close', 'move', 'new', 'priority', 'release', 'remove', 'rename', 'tag', 'ticketfeedback', 'tickets', 'topic', 'transcript'] },
+    mod: { category: 'Moderation', description: 'Moderation, warnings, and server safety tools', members: ['ban', 'cases', 'dm', 'kick', 'lock', 'massban', 'masskick', 'purge', 'say', 'timeout', 'unban', 'unlock', 'untimeout', 'usernotes', 'warn', 'warnings'] },
+    info: { category: 'Info', description: 'Server, user, role, and general information tools', members: ['dynoavatar', 'membercount', 'server', 'serverinfo', 'serverstats', 'whois', 'userinfo', 'avatar', 'roleinfo', 'roles', 'color', 'randomcolor', 'discrim', 'distance', 'emotes', 'commandstats'], rootMember: 'info', rootSubcommand: 'about' },
+    giveaway: { category: 'Giveaway', description: 'Create, manage, end, and reroll giveaways', members: ['gcreate', 'gdelete', 'gend', 'greroll'] },
+    level: { category: 'Leveling', description: 'Manage leveling, ranks, rewards, and leaderboards', members: ['leaderboard', 'leveladd', 'levelremove', 'levelrole', 'levelset', 'rank'], rootMember: 'level' },
+    verification: { category: 'Verification', description: 'Configure and manage member verification', members: ['autoverify', 'verify'], rootMember: 'verification' },
+    tts: { category: 'Community', description: 'Text-to-speech voice controls', members: ['tts-stop'], rootMember: 'tts', rootSubcommand: 'speak', memberNames: { 'tts-stop': 'stop' } },
 };
 
 function getSubcommandInfo(commandData) {
@@ -74,9 +26,7 @@ function getSubcommandInfo(commandData) {
     for (const option of commandData.options || []) {
         if (option.type === 1) subcommands.push(option.name);
         else if (option.type === 2) {
-            for (const subOption of option.options || []) {
-                if (subOption.type === 1) subcommands.push(`${option.name}/${subOption.name}`);
-            }
+            for (const subOption of option.options || []) if (subOption.type === 1) subcommands.push(`${option.name}/${subOption.name}`);
         }
     }
     return subcommands;
@@ -101,9 +51,7 @@ function commandToJson(command) {
 function asSubcommand(commandJson, name = commandJson.name) {
     const options = commandJson.options || [];
     const hasNestedCommands = options.some(option => option.type === 1 || option.type === 2);
-    if (hasNestedCommands) {
-        return { type: 2, name, description: commandJson.description || `Manage ${name}`, options };
-    }
+    if (hasNestedCommands) return { type: 2, name, description: commandJson.description || `Manage ${name}`, options };
     return { type: 1, name, description: commandJson.description || `Run ${name}`, options };
 }
 
@@ -113,16 +61,11 @@ function addFamilyMember(memberName, command, family, payloadOptions, dispatchMa
     const subcommandName = family.memberNames?.[memberName] || memberName;
     const options = json.options || [];
     const hasNestedCommands = options.some(option => option.type === 1 || option.type === 2);
-
     if (hasNestedCommands) {
         payloadOptions.push(asSubcommand(json, subcommandName));
         for (const option of options) {
             if (option.type === 1) dispatchMap.set(`${subcommandName}:${option.name}`, command);
-            else if (option.type === 2) {
-                for (const subOption of option.options || []) {
-                    if (subOption.type === 1) dispatchMap.set(`${subcommandName}:${option.name}:${subOption.name}`, command);
-                }
-            }
+            else if (option.type === 2) for (const subOption of option.options || []) if (subOption.type === 1) dispatchMap.set(`${subcommandName}:${option.name}:${subOption.name}`, command);
         }
     } else {
         payloadOptions.push(asSubcommand(json, subcommandName));
@@ -133,27 +76,21 @@ function addFamilyMember(memberName, command, family, payloadOptions, dispatchMa
 function consolidateCommandFamilies(client) {
     const originalCommands = new Map(client.commands);
     let consolidated = 0;
-
     for (const [familyName, family] of Object.entries(COMMAND_FAMILIES)) {
         const root = originalCommands.get(family.rootMember || familyName);
         const members = [];
         const dispatchMap = new Map();
         const payloadOptions = [];
-
         if (root) {
             const rootJson = commandToJson(root);
             if (rootJson) {
                 const rootOptions = rootJson.options || [];
                 if (rootOptions.some(option => option.type === 1 || option.type === 2)) {
                     for (const option of rootOptions) {
-                        if (option.type === 1) {
+                        if (option.type === 1) { payloadOptions.push(option); dispatchMap.set(option.name, root); }
+                        else if (option.type === 2) {
                             payloadOptions.push(option);
-                            dispatchMap.set(option.name, root);
-                        } else if (option.type === 2) {
-                            payloadOptions.push(option);
-                            for (const subOption of option.options || []) {
-                                if (subOption.type === 1) dispatchMap.set(`${option.name}:${subOption.name}`, root);
-                            }
+                            for (const subOption of option.options || []) if (subOption.type === 1) dispatchMap.set(`${option.name}:${subOption.name}`, root);
                         }
                     }
                 } else if (family.rootSubcommand) {
@@ -166,7 +103,6 @@ function consolidateCommandFamilies(client) {
             }
             members.push(root.data.name);
         }
-
         for (const memberName of family.members) {
             if (memberName === family.rootMember) continue;
             const command = originalCommands.get(memberName);
@@ -174,42 +110,28 @@ function consolidateCommandFamilies(client) {
             addFamilyMember(memberName, command, family, payloadOptions, dispatchMap);
             members.push(memberName);
         }
-
         if (payloadOptions.length === 0) continue;
-        if (payloadOptions.length > 25) {
-            logger.warn(`Command family /${familyName} has ${payloadOptions.length} subcommands; leaving it unconsolidated.`);
-            continue;
-        }
-
+        if (payloadOptions.length > 25) { logger.warn(`Command family /${familyName} has ${payloadOptions.length} subcommands; leaving it unconsolidated.`); continue; }
         const familyCommand = {
             category: family.category,
             filePath: root?.filePath || originalCommands.get(family.members[0])?.filePath || '',
             familyName,
             familyMembers: members,
-            data: {
-                name: familyName,
-                description: family.description,
-                toJSON: () => ({ name: familyName, description: family.description, options: payloadOptions, type: 1 }),
-            },
+            data: { name: familyName, description: family.description, toJSON: () => ({ name: familyName, description: family.description, options: payloadOptions, type: 1 }) },
             async execute(interaction, config, botClient) {
                 const group = interaction.options.getSubcommandGroup(false);
                 const sub = interaction.options.getSubcommand(false);
                 const key = group ? `${group}:${sub}` : sub;
                 const command = dispatchMap.get(key);
-                if (!command) {
-                    await interaction.reply({ content: `Unknown /${familyName} subcommand.`, ephemeral: true }).catch(() => {});
-                    return;
-                }
+                if (!command) { await interaction.reply({ content: `Unknown /${familyName} subcommand.`, ephemeral: true }).catch(() => {}); return; }
                 return command.execute(interaction, config, botClient);
             },
         };
-
         for (const memberName of members) client.commands.delete(memberName);
         client.commands.set(familyName, familyCommand);
         consolidated += Math.max(0, members.length - 1);
         logger.info(`Consolidated /${familyName}: ${members.join(', ')}`);
     }
-
     logger.info(`Consolidated ${consolidated} top-level commands into command families.`);
     return consolidated;
 }
@@ -220,34 +142,24 @@ export async function loadCommands(client) {
     const commandFiles = await getAllFiles(commandsPath);
     logger.info(`Found ${commandFiles.length} command files to load`);
     const uniqueNames = new Set();
-
     for (const filePath of commandFiles) {
         try {
             const normalizedPath = filePath.replace(/\\/g, '/');
             const commandModule = await import(`file://${filePath}`);
             const exported = commandModule.default || commandModule;
             const commands = Array.isArray(exported) ? exported : [exported];
-
             for (const command of commands) {
-                if (!command?.data || !command?.execute) {
-                    logger.warn(`Command at ${filePath} is missing data or execute`);
-                    continue;
-                }
+                if (!command?.data || !command?.execute) { logger.warn(`Command at ${filePath} is missing data or execute`); continue; }
                 command.category = command.category || path.basename(path.dirname(filePath));
                 command.filePath = normalizedPath;
                 if (!uniqueNames.has(command.data.name)) {
                     uniqueNames.add(command.data.name);
                     client.commands.set(command.data.name, command);
                     logger.info(`Loaded command: ${command.data.name}`);
-                } else {
-                    logger.warn(`Skipped duplicate command: ${command.data.name}`);
-                }
+                } else logger.warn(`Skipped duplicate command: ${command.data.name}`);
             }
-        } catch (error) {
-            logger.error(`Error loading command from ${filePath}:`, error);
-        }
+        } catch (error) { logger.error(`Error loading command from ${filePath}:`, error); }
     }
-
     const before = client.commands.size;
     consolidateCommandFamilies(client);
     logger.info(`Loaded ${client.commands.size} active slash command roots (from ${before} implementations)`);
@@ -297,6 +209,12 @@ export async function registerCommands(client, options = {}) {
     logger.info(`Prepared ${commands.length} slash commands (${totalSubcommands} subcommands) for application ${clientId}`);
 
     if (configuredServerId) {
+        // Use ONE registration scope. Old global commands are explicitly removed so
+        // commands previously registered globally cannot appear as duplicates.
+        const globalRoute = `/applications/${clientId}/commands`;
+        logger.info('Clearing old global slash commands before guild registration...');
+        await client.rest.put(globalRoute, { body: [] });
+
         const route = `/applications/${clientId}/guilds/${configuredServerId}/commands`;
         logger.info(`Registering ${commands.length} slash commands to configured server ${configuredServerId}`);
         await client.rest.put(route, { body: commands });
@@ -304,22 +222,20 @@ export async function registerCommands(client, options = {}) {
         return;
     }
 
+    // No guild configured: use global registration only. Clear cached guild
+    // registrations so a previous development/test registration cannot duplicate
+    // every command in Discord's command picker.
     const guildIds = [...(client.guilds?.cache?.keys?.() || [])];
-    if (guildIds.length === 0) {
-        const route = `/applications/${clientId}/commands`;
-        logger.info(`No guilds cached; registering ${commands.length} commands globally`);
-        await client.rest.put(route, { body: commands });
-        logger.info(`Successfully registered ${commands.length} global slash commands`);
-        return;
+    for (const guildId of guildIds) {
+        const guildRoute = `/applications/${clientId}/guilds/${guildId}/commands`;
+        await client.rest.put(guildRoute, { body: [] });
+        logger.info(`Cleared old guild-specific commands from ${guildId}`);
     }
 
-    logger.info(`SERVER_ID/GUILD_ID not configured; registering ${commands.length} slash commands to ${guildIds.length} cached guild(s)`);
-    for (const guildId of guildIds) {
-        const route = `/applications/${clientId}/guilds/${guildId}/commands`;
-        logger.info(`Registering slash commands to guild ${guildId}`);
-        await client.rest.put(route, { body: commands });
-        logger.info(`Successfully registered ${commands.length} slash commands to guild ${guildId}`);
-    }
+    const route = `/applications/${clientId}/commands`;
+    logger.info(`Registering ${commands.length} commands globally`);
+    await client.rest.put(route, { body: commands });
+    logger.info(`Successfully registered ${commands.length} global slash commands`);
 }
 
 export async function reloadCommand(client, commandName) {
