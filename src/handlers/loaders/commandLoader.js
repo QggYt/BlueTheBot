@@ -9,9 +9,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 
-// Keep implementations in their original files, but expose related features
-// through a single Discord slash-command root. This prevents duplicate roots
-// while preserving every implementation as a subcommand.
 const COMMAND_FAMILIES = {
     music: {
         category: 'Music',
@@ -61,6 +58,8 @@ const COMMAND_FAMILIES = {
         description: 'Text-to-speech voice controls',
         members: ['tts-stop'],
         rootMember: 'tts',
+        rootSubcommand: 'speak',
+        memberNames: { 'tts-stop': 'stop' },
     },
 };
 
@@ -112,27 +111,28 @@ function asSubcommand(commandJson, name = commandJson.name) {
     };
 }
 
-function addFamilyMember(memberName, command, payloadOptions, dispatchMap) {
+function addFamilyMember(memberName, command, family, payloadOptions, dispatchMap) {
     const json = commandToJson(command);
     if (!json) return;
 
+    const subcommandName = family.memberNames?.[memberName] || memberName;
     const options = json.options || [];
     const hasNestedCommands = options.some(option => option.type === 1 || option.type === 2);
 
     if (hasNestedCommands) {
-        payloadOptions.push(asSubcommand(json, memberName));
+        payloadOptions.push(asSubcommand(json, subcommandName));
         for (const option of options) {
             if (option.type === 1) {
-                dispatchMap.set(`${memberName}:${option.name}`, command);
+                dispatchMap.set(`${subcommandName}:${option.name}`, command);
             } else if (option.type === 2) {
                 for (const subOption of option.options || []) {
-                    if (subOption.type === 1) dispatchMap.set(`${memberName}:${option.name}:${subOption.name}`, command);
+                    if (subOption.type === 1) dispatchMap.set(`${subcommandName}:${option.name}:${subOption.name}`, command);
                 }
             }
         }
     } else {
-        payloadOptions.push(asSubcommand(json, memberName));
-        dispatchMap.set(memberName, command);
+        payloadOptions.push(asSubcommand(json, subcommandName));
+        dispatchMap.set(subcommandName, command);
     }
 }
 
@@ -187,7 +187,7 @@ function consolidateCommandFamilies(client) {
             if (memberName === family.rootMember) continue;
             const command = originalCommands.get(memberName);
             if (!command) continue;
-            addFamilyMember(memberName, command, payloadOptions, dispatchMap);
+            addFamilyMember(memberName, command, family, payloadOptions, dispatchMap);
             members.push(memberName);
         }
 
