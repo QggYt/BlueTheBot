@@ -7,15 +7,7 @@ import {
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { createEmbed } from '../../utils/embeds.js';
 import { logger } from '../../utils/logger.js';
-import {
-    createSelectMenu,
-} from '../../utils/components.js';
-import fs from "fs/promises";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { createSelectMenu } from '../../utils/components.js';
 
 const CATEGORY_SELECT_ID = "help-category-select";
 const ALL_COMMANDS_ID = "help-all-commands";
@@ -24,6 +16,7 @@ const HELP_MENU_TIMEOUT_MS = 5 * 60 * 1000;
 
 const CATEGORY_ICONS = {
     Core: "ℹ️",
+    Info: "📚",
     Moderation: "🛡️",
     Economy: "💰",
     Music: "🎵",
@@ -44,36 +37,38 @@ const CATEGORY_ICONS = {
 };
 
 function formatCategoryName(rawCategory) {
-    return rawCategory
+    return String(rawCategory || '')
         .replace(/_/g, ' ')
         .replace(/([a-z])([A-Z])/g, '$1 $2')
         .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-export async function createInitialHelpMenu(client, guild = null) {
-    const commandsPath = path.join(__dirname, "../../commands");
-    const categoryDirs = (
-        await fs.readdir(commandsPath, { withFileTypes: true })
-    )
-        .filter((dirent) => dirent.isDirectory())
-        .map((dirent) => dirent.name)
-        .sort();
+function getCategoryIcon(category) {
+    return CATEGORY_ICONS[formatCategoryName(category)] || "🔍";
+}
 
+function getActiveCategories(client) {
+    const categories = new Set();
+    for (const command of client?.commands?.values?.() || []) {
+        const category = formatCategoryName(command.category || 'Other');
+        if (category !== 'Other') categories.add(category);
+    }
+    return [...categories].sort((a, b) => a.localeCompare(b));
+}
+
+export async function createInitialHelpMenu(client, guild = null) {
+    const categories = getActiveCategories(client);
     const options = [
         {
             label: "📋 All Commands",
-            description: "Browse every available command in a single list",
+            description: "Browse every currently loaded command",
             value: ALL_COMMANDS_ID,
         },
-        ...categoryDirs.map((category) => {
-            const categoryName = formatCategoryName(category);
-            const icon = CATEGORY_ICONS[categoryName] || "🔍";
-            return {
-                label: `${icon} ${categoryName}`,
-                description: `View commands in the ${categoryName} category`,
-                value: category,
-            };
-        }),
+        ...categories.map((category) => ({
+            label: `${getCategoryIcon(category)} ${category}`,
+            description: `View active commands in the ${category} category`,
+            value: category,
+        })),
     ];
 
     const botName = client?.user?.username || "Bot";
@@ -83,7 +78,7 @@ export async function createInitialHelpMenu(client, guild = null) {
 
     const embed = createEmbed({
         title: `📖 ${botName} Help`,
-        description: 'Set up your server, pick what to enable, then browse commands below.',
+        description: 'Browse the commands that are actually loaded and registered by BlueTheBot.',
         color: 'primary',
         thumbnail: client.user?.displayAvatarURL?.({ size: 1024 }),
         fields: [
@@ -97,25 +92,23 @@ export async function createInitialHelpMenu(client, guild = null) {
                 value: [
                     '**1. Launch setup** — Run `/configwizard` to configure prefix, mod role, and logs.',
                     '**2. Enable systems** — Use `/commands dashboard` to turn categories on or off.',
-                    '**3. Browse commands** — Use the menu below to view categories and commands.',
+                    '**3. Browse commands** — Use the menu below to view only active commands.',
                 ].join('\n'),
                 inline: false,
             },
             {
                 name: 'ℹ️ How It Works',
                 value: [
-                    '• Dashboard commands manage each feature visually',
-                    '• Settings are saved per server',
-                    '• Slash commands and prefixes both work once enabled',
+                    '• Related commands are grouped under shared slash-command roots',
+                    '• Duplicate command roots are removed',
+                    '• Failed command files are not shown as active commands',
                 ].join('\n'),
                 inline: false,
             },
         ],
     });
 
-    embed.setFooter({
-        text: "Made with ❤️"
-    });
+    embed.setFooter({ text: "Made with ❤️" });
     embed.setTimestamp();
 
     const bugReportButton = new ButtonBuilder()
@@ -139,10 +132,7 @@ export async function createInitialHelpMenu(client, guild = null) {
         supportButton,
     ]);
 
-    return {
-        embeds: [embed],
-        components: [buttonRow, selectRow],
-    };
+    return { embeds: [embed], components: [buttonRow, selectRow] };
 }
 
 export default {
@@ -155,17 +145,11 @@ export default {
         await InteractionHelper.safeDefer(interaction);
 
         const { embeds, components } = await createInitialHelpMenu(client, interaction.guild);
-
-        await InteractionHelper.safeEditReply(interaction, {
-            embeds,
-            components,
-        });
+        await InteractionHelper.safeEditReply(interaction, { embeds, components });
 
         setTimeout(async () => {
             try {
-                if (!InteractionHelper.isInteractionValid(interaction)) {
-                    return;
-                }
+                if (!InteractionHelper.isInteractionValid(interaction)) return;
 
                 const closedEmbed = createEmbed({
                     title: "Help menu closed",
