@@ -9,6 +9,32 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const MAX_COMMANDS = 100;
 
+// These families combine related top-level commands into Discord subcommands.
+// Existing command implementations are kept and called unchanged.
+const COMMAND_FAMILIES = {
+    music: {
+        category: 'Music',
+        description: 'Manage music playback, queue, and voice controls',
+        members: ['join', 'nowplaying', 'play', 'queue'],
+    },
+    ticket: {
+        category: 'Ticket',
+        description: 'Manage the server ticket system',
+        members: ['add', 'claim', 'close', 'force-close', 'move', 'new', 'priority', 'release', 'remove', 'rename', 'tag', 'ticketfeedback', 'tickets'],
+    },
+    mod: {
+        category: 'Moderation',
+        description: 'Moderation and server safety tools',
+        members: ['ban', 'cases', 'dm', 'kick', 'lock', 'massban', 'masskick', 'purge', 'say', 'timeout', 'unban', 'unlock', 'untimeout', 'usernotes'],
+    },
+    info: {
+        category: 'Info',
+        description: 'Server, user, role, and utility information',
+        members: ['dynoavatar', 'membercount', 'server', 'whois', 'roleinfo', 'roles', 'color', 'randomcolor', 'discrim', 'distance', 'emotes', 'commandstats'],
+        rootMember: 'info',
+    },
+};
+
 function getSubcommandInfo(commandData) {
     const subcommands = [];
     for (const option of commandData.options || []) {
@@ -31,6 +57,143 @@ async function getAllFiles(directory, fileList = []) {
         } else if (file.name.endsWith('.js')) fileList.push(filePath);
     }
     return fileList;
+}
+
+function commandToJson(command) {
+    if (!command?.data || typeof command.data.toJSON !== 'function') return null;
+    return command.data.toJSON();
+}
+
+function asSubcommand(commandJson, name = commandJson.name) {
+    const options = commandJson.options || [];
+    const hasNestedCommands = options.some(option => option.type === 1 || option.type === 2);
+    if (hasNestedCommands) {
+        return {
+            type: 2,
+            name,
+            description: commandJson.description || `Manage ${name}`,
+            options,
+        };
+    }
+    return {
+        type: 1,
+        name,
+        description: commandJson.description || `Run ${name}`,
+        options,
+    };
+}
+
+function addFamilyMember(family, memberName, command, payloadOptions, dispatchMap) {
+    const json = commandToJson(command);
+    if (!json) return;
+
+    const options = json.options || [];
+    const hasNestedCommands = options.some(option => option.type === 1 || option.type === 2);
+
+    if (hasNestedCommands) {
+        const group = asSubcommand(commandToJson(command), memberName);
+        payloadOptions.push(group);
+        for (const option of options) {
+            if (option.type === 1) {
+                dispatchMap.set(`${memberName}:${option.name}`, command);
+            } else if (option.type === 2) {
+                for (const subOption of option.options || []) {
+                    if (subOption.type === 1) dispatchMap.set(`${memberName}:${option.name}:${subOption.name}`, command);
+                }
+            }
+        }
+    } else {
+        payloadOptions.push(asSubcommand(json, memberName));
+        dispatchMap.set(memberName, command);
+    }
+}
+
+function consolidateCommandFamilies(client) {
+    const originalCommands = new Map(client.commands);
+    const replacements = [];
+    let consolidated = 0;
+
+    for (const [familyName, family] of Object.entries(COMMAND_FAMILIES)) {
+        const root = originalCommands.get(family.rootMember || familyName);
+        const members = [];
+        const dispatchMap = new Map();
+        const payloadOptions = [];
+
+        if (root) {
+            const rootJson = commandToJson(root);
+            if (rootJson) {
+                for (const option of rootJson.options || []) {
+                    if (option.type === 1) {
+                        payloadOptions.push(option);
+                        dispatchMap.set(option.name, root);
+                    } else if (option.type === 2) {
+                        payloadOptions.push(option);
+                        for (const subOption of option.options || []) {
+                            if (subOption.type === 1) dispatchMap.set(`${option.name}:${subOption.name}`, root);
+                        }
+                    }
+                }
+            }
+            members.push(root.data.name);
+        }
+
+        for (const memberName of family.members) {
+            if (memberName === family.rootMember) continue;
+            const command = originalCommands.get(memberName);
+            if (!command) continue;
+            addFamilyMember(family, memberName, command, payloadOptions, dispatchMap);
+            members.push(memberName);
+        }
+
+        if (payloadOptions.length === 0) continue;
+        if (payloadOptions.length > 25) {
+            logger.warn(`Command family /${familyName} has ${payloadOptions.length} subcommands; leaving it unconsolidated.`);
+            continue;
+        }
+
+        const familyCommand = {
+            category: family.category,
+            filePath: root?.filePath || originalCommands.get(family.members[0])?.filePath || '',
+            familyName,
+            familyMembers: members,
+            data: {
+                name: familyName,
+                description: family.description,
+                toJSON: () => ({
+                    name: familyName,
+                    description: family.description,
+                    options: payloadOptions,
+                    type: 1,
+                }),
+            },
+            async execute(interaction, config, botClient) {
+                const group = interaction.options.getSubcommandGroup(false);
+                const sub = interaction.options.getSubcommand(false);
+                const key = group ? `${familyName === group ? '' : group}:${sub}` : sub;
+                const command = dispatchMap.get(key) || dispatchMap.get(sub) || (root && dispatchMap.get(sub));
+                if (!command) {
+                    await interaction.reply({ content: `Unknown /${familyName} subcommand.`, ephemeral: true }).catch(() => {});
+                    return;
+                }
+                return command.execute(interaction, config, botClient);
+            },
+        };
+
+        for (const memberName of members) client.commands.delete(memberName);
+        client.commands.set(familyName, familyCommand);
+        replacements.push({ familyName, removed: members.length, kept: familyName, members });
+        consolidated += Math.max(0, members.length - 1);
+    }
+
+    // Root family names may overlap with an original command that was not part of the family.
+    // The family replacement is intentional and wins.
+    if (replacements.length) {
+        logger.info(`Consolidated ${consolidated} top-level commands into ${replacements.length} command families.`);
+        for (const replacement of replacements) {
+            logger.info(`/${replacement.familyName}: ${replacement.members.join(', ')}`);
+        }
+    }
+    return replacements;
 }
 
 export async function loadCommands(client) {
@@ -66,7 +229,10 @@ export async function loadCommands(client) {
             logger.error(`Error loading command from ${filePath}:`, error);
         }
     }
-    logger.info(`Loaded ${client.commands.size} unique commands`);
+
+    const before = client.commands.size;
+    consolidateCommandFamilies(client);
+    logger.info(`Loaded ${client.commands.size} active slash command roots (from ${before} implementations)`);
     return client.commands;
 }
 
