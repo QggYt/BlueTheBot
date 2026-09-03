@@ -101,20 +101,45 @@ function validateCommands(commands) {
 export async function registerCommands(client, options = {}) {
     const clientId = String(options.clientId || client.user?.id || botConfig.clientId || '').trim();
     const configuredServerId = String(options.serverId || botConfig.serverId || process.env.SERVER_ID || process.env.GUILD_ID || '').trim();
-    const serverId = configuredServerId || client.guilds?.cache?.first()?.id || '';
+
     if (!clientId) throw new Error('CLIENT_ID (Discord application/bot ID) is required');
     if (!/^\d{17,20}$/.test(clientId)) throw new Error('CLIENT_ID must be the numeric Discord application/bot ID, not the server ID or bot token');
-    if (serverId && !/^\d{17,20}$/.test(serverId)) throw new Error('SERVER_ID/GUILD_ID must be the numeric Discord server/guild ID, not the bot/application ID');
     if (!client.rest) throw new Error('Discord REST client is not available');
 
     const { commands, totalSubcommands } = collectCommandPayloads(client);
     validateCommands(commands);
     if (commands.length > MAX_COMMANDS) throw new Error(`Discord allows ${MAX_COMMANDS} top-level commands; found ${commands.length}`);
-    const route = serverId ? `/applications/${clientId}/guilds/${serverId}/commands` : `/applications/${clientId}/commands`;
-    const scope = serverId ? `server ${serverId}` : 'global application scope';
-    logger.info(`Registering ${commands.length} ${scope} commands (${totalSubcommands} subcommands)`);
-    await client.rest.put(route, { body: commands });
-    logger.info(`Successfully registered ${commands.length} ${scope} commands`);
+
+    if (configuredServerId && !/^\d{17,20}$/.test(configuredServerId)) {
+        throw new Error('SERVER_ID/GUILD_ID must be the numeric Discord server/guild ID, not the bot/application ID');
+    }
+
+    logger.info(`Prepared ${commands.length} slash commands (${totalSubcommands} subcommands) for application ${clientId}`);
+
+    if (configuredServerId) {
+        const route = `/applications/${clientId}/guilds/${configuredServerId}/commands`;
+        logger.info(`Registering ${commands.length} slash commands to configured server ${configuredServerId}`);
+        await client.rest.put(route, { body: commands });
+        logger.info(`Successfully registered ${commands.length} slash commands to server ${configuredServerId}`);
+        return;
+    }
+
+    const guildIds = [...(client.guilds?.cache?.keys?.() || [])];
+    if (guildIds.length === 0) {
+        const route = `/applications/${clientId}/commands`;
+        logger.info(`No guilds cached; registering ${commands.length} commands globally`);
+        await client.rest.put(route, { body: commands });
+        logger.info(`Successfully registered ${commands.length} global slash commands`);
+        return;
+    }
+
+    logger.info(`SERVER_ID/GUILD_ID not configured; registering ${commands.length} slash commands to ${guildIds.length} cached guild(s)`);
+    for (const guildId of guildIds) {
+        const route = `/applications/${clientId}/guilds/${guildId}/commands`;
+        logger.info(`Registering slash commands to guild ${guildId}`);
+        await client.rest.put(route, { body: commands });
+        logger.info(`Successfully registered slash commands to guild ${guildId}`);
+    }
 }
 
 export async function reloadCommand(client, commandName) {
