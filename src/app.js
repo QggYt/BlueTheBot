@@ -231,23 +231,23 @@ class TitanBot extends Client {
   }
 
   async registerCommands() {
-    // Keep Discord application ID and server ID separate all the way to the REST route.
-    const clientId = this.config.bot.clientId || process.env.CLIENT_ID || this.user?.id;
+    const clientId = this.user?.id || this.config.bot.clientId || process.env.CLIENT_ID;
+    const serverId = this.config.bot.serverId || process.env.SERVER_ID || process.env.GUILD_ID;
+
     if (!clientId) {
-      logger.error('❌ Cannot register slash commands: Discord application ID (CLIENT_ID) is missing.');
-      return false;
+      throw new Error('Cannot register slash commands: Discord application ID is missing.');
     }
 
-    const serverId = this.config.bot.serverId || process.env.SERVER_ID;
-    logger.info(`Registering ${this.commands.size} slash commands to ${serverId ? `server ${serverId}` : 'global application scope'}...`);
+    logger.info(`Slash command registration target: application=${clientId}, configuredServer=${serverId || 'AUTO'}`);
 
     try {
       await registerSlashCommands(this, { clientId, serverId });
+      logger.info('✅ Slash command registration succeeded');
       return true;
     } catch (error) {
       logger.error(`❌ Slash command registration failed: ${error?.message || error}`);
       if (error?.rawError) logger.error(`Discord API error: ${JSON.stringify(error.rawError)}`);
-      return false;
+      throw error;
     }
   }
 
