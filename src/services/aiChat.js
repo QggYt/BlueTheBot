@@ -1,6 +1,6 @@
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
 const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash';
+const FALLBACK_GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const MAX_HISTORY = 8;
 const MAX_CHANNEL_MESSAGES = 12;
 const MAX_INPUT = 1800;
@@ -19,7 +19,7 @@ function sanitize(text) { let value = String(text || '').slice(0, MAX_INPUT); fo
 export function isGlobalAIEnabled() { return globalAIEnabled; }
 export function setGlobalAIEnabled(enabled) { globalAIEnabled = Boolean(enabled); return globalAIEnabled; }
 export function isAIEnabled(guildConfig) { return globalAIEnabled && guildConfig?.ai?.enabled !== false; }
-export function isAIConfigured() { return Boolean(GEMINI_KEY); }
+export function isAIConfigured() { return Boolean(process.env.GEMINI_API_KEY?.trim()); }
 
 function getRetrySeconds(raw) {
   const match = String(raw || '').match(/Please retry in\s+([\d.]+)s/i);
@@ -39,8 +39,19 @@ function serviceUnavailableError() {
   return error;
 }
 
-async function generateWithModel(parts) {
-  const response = await fetch(`${GEMINI_URL}/${DEFAULT_GEMINI_MODEL}:generateContent?key=${encodeURIComponent(GEMINI_KEY)}`, {
+function authenticationError(status) {
+  const error = new Error('Gemini API authentication failed. Check GEMINI_API_KEY.');
+  error.status = status;
+  return error;
+}
+
+function getModels() {
+  const configured = String(process.env.GEMINI_MODEL || '').trim();
+  return [...new Set([configured || DEFAULT_GEMINI_MODEL, ...FALLBACK_GEMINI_MODELS])];
+}
+
+async function generateWithModel(model, parts, key) {
+  const response = await fetch(`${GEMINI_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: 400 } }),
@@ -59,7 +70,8 @@ async function fetchImagePart(image) {
 async function mediaParts(images = []) { const parts = []; for (const image of images.slice(0, MAX_IMAGES)) { const part = await fetchImagePart(image); if (part) parts.push(part); } return parts; }
 
 export async function askAI({ guildId, channelId, userId, userName, question, botName, channelContext = [], channelMessages = [], images = [] }) {
-  if (!GEMINI_KEY) return 'My AI is not configured. Add GEMINI_API_KEY to the bot environment and restart Blue.';
+  const keyValue = String(process.env.GEMINI_API_KEY || '').trim();
+  if (!keyValue) return 'My AI is not configured. Add GEMINI_API_KEY to the bot environment and restart Blue.';
   const safeQuestion = sanitize(question); if (!safeQuestion.trim()) return 'I can\'t process that message safely.';
   const key = getKey(guildId, channelId, userId); const history = remember(key, 'user', safeQuestion);
   const sourceContext = channelContext.length ? channelContext : channelMessages;
@@ -70,34 +82,46 @@ export async function askAI({ guildId, channelId, userId, userName, question, bo
     if (Date.now() < quotaRetryUntil) throw quotaError(Math.ceil((quotaRetryUntil - Date.now()) / 1000));
 
     const parts = [{ text }, ...(await mediaParts(images))];
-    let attempted503Retry = false;
+    let lastError = null;
 
-    for (;;) {
-      const { response, raw } = await generateWithModel(parts);
-      if (response.ok) {
-        const data = await response.json();
-        const answer = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
-        if (!answer) throw new Error('Gemini AI returned an empty response');
-        const result = trim(answer); remember(key, 'assistant', result); return result;
-      }
-
-      if (response.status === 429) {
-        const seconds = getRetrySeconds(raw);
-        quotaRetryUntil = Date.now() + seconds * 1000;
-        throw quotaError(seconds);
-      }
-
-      if (response.status === 503 || response.status === 502 || response.status === 504) {
-        if (!attempted503Retry) {
-          attempted503Retry = true;
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          continue;
+    for (const model of getModels()) {
+      let attempted503Retry = false;
+      for (;;) {
+        const { response, raw } = await generateWithModel(model, parts, keyValue);
+        if (response.ok) {
+          const data = await response.json();
+          const answer = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim();
+          if (!answer) throw new Error('Gemini AI returned an empty response');
+          const result = trim(answer); remember(key, 'assistant', result); return result;
         }
-        throw serviceUnavailableError();
-      }
 
-      throw new Error(`Gemini AI HTTP ${response.status}: ${raw.slice(0, 500)}`);
+        if (response.status === 401 || response.status === 403) throw authenticationError(response.status);
+
+        if (response.status === 429) {
+          const seconds = getRetrySeconds(raw);
+          quotaRetryUntil = Date.now() + seconds * 1000;
+          throw quotaError(seconds);
+        }
+
+        if (response.status === 503 || response.status === 502 || response.status === 504) {
+          if (!attempted503Retry) {
+            attempted503Retry = true;
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            continue;
+          }
+        }
+
+        if (response.status === 400 || response.status === 404 || response.status === 503 || response.status === 502 || response.status === 504) {
+          lastError = new Error(`Gemini AI model ${model} returned HTTP ${response.status}: ${raw.slice(0, 500)}`);
+          lastError.status = response.status;
+          break;
+        }
+
+        throw new Error(`Gemini AI HTTP ${response.status}: ${raw.slice(0, 500)}`);
+      }
     }
+
+    throw lastError || serviceUnavailableError();
   } catch (error) {
     const current = conversations.get(key) || [];
     if (current.at(-1)?.role === 'user' && current.at(-1)?.content === safeQuestion) current.pop();
