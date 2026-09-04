@@ -31,11 +31,11 @@ export default {
 
     try {
       await updateGuildConfig(client, interaction.guildId, {
-        ticketLogsChannelId: channel.id,
+        ticketFeedbackChannelId: channel.id,
       });
 
       return interaction.reply({
-        content: `✅ Ticket feedback logging is now set to ${channel}.\nAll ticket feedback will be sent there.`,
+        content: `✅ Ticket feedback channel is now set to ${channel}.\nAll ticket feedback will be sent there.`,
         ephemeral: true,
       });
     } catch (error) {
