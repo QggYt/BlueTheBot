@@ -30,6 +30,7 @@ export const DEFAULT_GUILD_CONFIG = {
     adminRole: null,
     welcomeChannel: null,
     autoRole: null,
+    ticketFeedbackChannelId: null,
     ai: {
         enabled: true
     },
