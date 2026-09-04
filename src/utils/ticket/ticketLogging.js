@@ -81,6 +81,11 @@ function getLogChannelForEventType(config, eventType) {
     case 'transcript':
       return config.ticketTranscriptChannelId || null;
 
+    case 'feedback':
+      // Feedback has its own channel. Fall back to the normal ticket logs
+      // channel only when a dedicated feedback channel has not been set.
+      return config.ticketFeedbackChannelId || config.ticketLogsChannelId || null;
+
     case 'open':
     case 'close':
     case 'delete':
@@ -89,7 +94,6 @@ function getLogChannelForEventType(config, eventType) {
     case 'priority':
     case 'pin':
     case 'unpin':
-    case 'feedback':
       return config.ticketLogsChannelId || null;
 
     default:
@@ -277,4 +281,3 @@ export function validateLogChannel(channel, botMember) {
 
   return { valid: true };
 }
-
