@@ -17,10 +17,10 @@ export default {
     const comment = interaction.options.getString('comment') || 'No comment provided.';
     const ticketChannelId = interaction.channelId;
 
-    // The Ticket Dashboard stores the configured destination here.
-    const logsChannelId = guildConfig?.ticketLogsChannelId;
+    // /feedbackchannel stores the destination here.
+    const feedbackChannelId = guildConfig?.ticketFeedbackChannelId;
 
-    // Save the feedback to the ticket record so /tickets statistics can use it.
+    // Save the feedback to the ticket record so ticket statistics can use it.
     const ticketData = await getTicketData(interaction.guildId, ticketChannelId).catch(() => null);
     if (ticketData) {
       ticketData.feedback = {
@@ -53,27 +53,27 @@ export default {
     let sent = false;
     let failureReason = null;
 
-    if (!logsChannelId) {
-      failureReason = 'No Ticket Logs Channel is configured.';
+    if (!feedbackChannelId) {
+      failureReason = 'No Ticket Feedback Channel is configured. Use /feedbackchannel first.';
     } else {
-      const channel = await client.channels.fetch(logsChannelId).catch(error => {
-        failureReason = `Could not find the configured Ticket Logs Channel: ${error.message}`;
+      const channel = await client.channels.fetch(feedbackChannelId).catch(error => {
+        failureReason = `Could not find the configured Ticket Feedback Channel: ${error.message}`;
         return null;
       });
 
       if (!channel) {
-        failureReason ||= 'The configured Ticket Logs Channel no longer exists.';
+        failureReason ||= 'The configured Ticket Feedback Channel no longer exists.';
       } else if (!channel.isTextBased() || !channel.isSendable?.()) {
-        failureReason = 'The bot cannot send messages in the configured Ticket Logs Channel.';
+        failureReason = 'The bot cannot send messages in the configured Ticket Feedback Channel.';
       } else {
         try {
           await channel.send({ embeds: [embed] });
           sent = true;
         } catch (error) {
-          failureReason = `Failed to send feedback to the Ticket Logs Channel: ${error.message}`;
-          logger.error('Ticket feedback log send failed', {
+          failureReason = `Failed to send feedback to the Ticket Feedback Channel: ${error.message}`;
+          logger.error('Ticket feedback send failed', {
             guildId: interaction.guildId,
-            channelId: logsChannelId,
+            channelId: feedbackChannelId,
             error: error.message,
           });
         }
@@ -81,18 +81,18 @@ export default {
     }
 
     if (!sent) {
-      logger.warn('Ticket feedback was submitted but was not sent to the configured logs channel', {
+      logger.warn('Ticket feedback was submitted but was not sent to the configured feedback channel', {
         guildId: interaction.guildId,
         ticketChannelId,
-        logsChannelId,
+        feedbackChannelId,
         reason: failureReason,
       });
     }
 
     await interaction.reply({
       content: sent
-        ? 'Thanks! Your ticket feedback was sent to the staff logs.'
-        : `Thanks! Your feedback was saved, but it could not be sent to the ticket logs. ${failureReason || 'Please check the Ticket Logs Channel setting and bot permissions.'}`,
+        ? 'Thanks! Your ticket feedback was sent successfully.'
+        : `Thanks! Your feedback was saved, but it could not be sent. ${failureReason || 'Please check the feedback channel setting and bot permissions.'}`,
       ephemeral: true,
     });
   },
