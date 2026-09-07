@@ -1,5 +1,5 @@
 import { pgDb } from '../postgresDatabase.js';
-import { MemoryStorage } from '../memoryStorage.js';
+import { PersistentStorage } from '../persistentStorage.js';
 import { logger } from '../logger.js';
 import { validateGuildConfigOrThrow } from '../schemas.js';
 
@@ -14,9 +14,7 @@ class DatabaseWrapper {
     }
 
     async initialize() {
-        if (this.initialized) {
-            return;
-        }
+        if (this.initialized) return;
 
         try {
             logger.info('Attempting to connect to PostgreSQL...');
@@ -41,25 +39,24 @@ class DatabaseWrapper {
         } catch (error) {
             logger.warn('PostgreSQL connection failed:', error.message);
 
-            if (error.code === 'SCHEMA_VERSION_MISMATCH') {
-                throw error;
-            }
+            if (error.code === 'SCHEMA_VERSION_MISMATCH') throw error;
         }
 
-        this.db = new MemoryStorage();
+        // PostgreSQL is unavailable. Use disk-backed storage instead of RAM so
+        // guild/server configuration survives normal bot restarts and shutdowns.
+        this.db = new PersistentStorage();
+        await this.db.initialize();
         this.useFallback = true;
-        this.connectionType = 'memory';
+        this.connectionType = 'persistent-file';
         this.degradedReason = 'POSTGRES_UNAVAILABLE';
-        logger.warn('⚠️ DATABASE DEGRADED MODE ENABLED - Using in-memory storage (data will be lost on restart)');
-        logger.warn('⚠️ Please check PostgreSQL connection and restart the bot when fixed');
+        logger.warn('⚠️ PostgreSQL unavailable - using persistent disk storage. Data will survive bot restarts.');
+        logger.warn('⚠️ Configure DATABASE_URL for PostgreSQL if you need persistence across server re-installs/deletions.');
         this.initialized = true;
         this.degradedModeWarningShown = true;
     }
 
     async set(key, value, ttl = null) {
-        if (this.useFallback) {
-            logger.debug(`[DEGRADED] Writing to memory: ${key}`);
-        }
+        if (this.useFallback) logger.debug(`[PERSISTENT FALLBACK] Writing to disk: ${key}`);
 
         if (typeof key === 'string' && /^guild:[^:]+:config$/.test(key)) {
             const guildId = key.split(':')[1];
@@ -77,9 +74,7 @@ class DatabaseWrapper {
     }
 
     async delete(key) {
-        if (this.useFallback) {
-            logger.debug(`[DEGRADED] Deleting from memory: ${key}`);
-        }
+        if (this.useFallback) logger.debug(`[PERSISTENT FALLBACK] Deleting from disk: ${key}`);
         return this.db.delete(key);
     }
 
@@ -88,20 +83,14 @@ class DatabaseWrapper {
     }
 
     async exists(key) {
-        if (this.db.exists) {
-            return this.db.exists(key);
-        }
+        if (this.db.exists) return this.db.exists(key);
         const value = await this.db.get(key);
         return value !== null;
     }
 
     async increment(key, amount = 1) {
-        if (this.useFallback) {
-            logger.debug(`[DEGRADED] Incrementing in memory: ${key}`);
-        }
-        if (this.db.increment) {
-            return this.db.increment(key, amount);
-        }
+        if (this.useFallback) logger.debug(`[PERSISTENT FALLBACK] Incrementing on disk: ${key}`);
+        if (this.db.increment) return this.db.increment(key, amount);
         const current = await this.db.get(key, 0);
         const newValue = current + amount;
         await this.db.set(key, newValue);
@@ -109,12 +98,8 @@ class DatabaseWrapper {
     }
 
     async decrement(key, amount = 1) {
-        if (this.useFallback) {
-            logger.debug(`[DEGRADED] Decrementing in memory: ${key}`);
-        }
-        if (this.db.decrement) {
-            return this.db.decrement(key, amount);
-        }
+        if (this.useFallback) logger.debug(`[PERSISTENT FALLBACK] Decrementing on disk: ${key}`);
+        if (this.db.decrement) return this.db.decrement(key, amount);
         const current = await this.db.get(key, 0);
         const newValue = current - amount;
         await this.db.set(key, newValue);
@@ -126,7 +111,9 @@ class DatabaseWrapper {
     }
 
     isAvailable() {
-        return this.db && !this.useFallback;
+        // The fallback is a real persistent store, but callers that specifically
+        // require PostgreSQL should still be able to detect that it is not SQL.
+        return Boolean(this.db) && !this.useFallback;
     }
 
     getStatus() {
@@ -148,17 +135,14 @@ export const db = new DatabaseWrapper();
 
 export async function initializeDatabase() {
     try {
-        logger.info('Initializing Database (PostgreSQL > Memory fallback)...');
+        logger.info('Initializing Database (PostgreSQL > Persistent Disk fallback)...');
         await db.initialize();
         logger.info('✅ Database initialized');
         return { db };
     } catch (error) {
         logger.error('❌ Database Initialization Error:', error);
 
-        if (error.code === 'SCHEMA_VERSION_MISMATCH') {
-            throw error;
-        }
-
+        if (error.code === 'SCHEMA_VERSION_MISMATCH') throw error;
         return { db };
     }
 }
